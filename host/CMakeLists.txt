@@ -131,7 +131,6 @@ if (OE_SGX)
 
   list(APPEND PLATFORM_SDK_ONLY_SRC
     sgx/calls.c
-    sgx/collaterals.c
     sgx/create.c
     sgx/elf.c
     sgx/enclave.c

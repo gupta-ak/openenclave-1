@@ -10,11 +10,9 @@
 #include "../../common/sgx/quote.h"
 #include "sgxquoteprovider.h"
 
-oe_result_t oe_verify_remote_report_with_collaterals(
+oe_result_t oe_verify_remote_report(
     const uint8_t* report,
     size_t report_size,
-    const uint8_t* collaterals,
-    size_t collaterals_size,
     oe_report_t* parsed_report)
 {
     oe_result_t result = OE_UNEXPECTED;
@@ -39,7 +37,7 @@ oe_result_t oe_verify_remote_report_with_collaterals(
 
     // Quote attestation can be done entirely on the host side.
     OE_CHECK(oe_verify_quote_internal_with_collaterals(
-        header->report, header->report_size, collaterals, collaterals_size));
+        header->report, header->report_size, NULL, 0));
 
     // Optionally return parsed report.
     if (parsed_report != NULL)
@@ -49,13 +47,4 @@ oe_result_t oe_verify_remote_report_with_collaterals(
 
 done:
     return result;
-}
-
-oe_result_t oe_verify_remote_report(
-    const uint8_t* report,
-    size_t report_size,
-    oe_report_t* parsed_report)
-{
-    return oe_verify_remote_report_with_collaterals(
-        report, report_size, NULL, 0, parsed_report);
 }

@@ -101,6 +101,7 @@ OE_STATIC_ASSERT(
 #define OE_COLLATERALS_BODY_SIZE (sizeof(oe_collaterals_t))
 #define OE_COLLATERALS_SIZE \
     (OE_COLLATERALS_HEADER_SIZE + OE_COLLATERALS_BODY_SIZE)
+
 /*
 **==============================================================================
 **
