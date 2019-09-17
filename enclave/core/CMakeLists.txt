@@ -53,7 +53,6 @@ if (OE_SGX)
         ../../common/sgx/collaterals.c
         sgx/backtrace.c
         sgx/calls.c
-        sgx/collaterals.c
         sgx/cpuid.c
         sgx/entropy.c
         sgx/exception.c
