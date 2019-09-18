@@ -67,7 +67,7 @@ oe_result_t oe_verify_report(
     if (header->tee_evidence_type == OE_TEE_TYPE_SGX_REMOTE)
     {
         OE_CHECK(oe_verify_quote_internal_with_collaterals(
-            header->report, header->report_size, NULL, 0, NULL));
+            header->tee_evidence, header->tee_evidence_size, NULL, 0, NULL));
     }
     else if (header->tee_evidence_type == OE_TEE_TYPE_SGX_LOCAL)
     {
