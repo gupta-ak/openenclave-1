@@ -91,13 +91,18 @@ done:
 
 oe_result_t oe_validate_qe_identity(
     sgx_report_body_t* qe_report_body,
-    oe_get_qe_identity_info_args_t* qe_id_args)
+    oe_get_qe_identity_info_args_t* qe_id_args,
+    oe_datetime_t* validity_from,
+    oe_datetime_t* validity_until)
 {
     oe_result_t result = OE_FAILURE;
     const uint8_t* pem_pck_certificate = NULL;
     size_t pem_pck_certificate_size = 0;
     oe_cert_chain_t pck_cert_chain = {0};
+    oe_cert_t leaf_cert = {0};
     oe_parsed_qe_identity_info_t parsed_info = {0};
+    oe_datetime_t from = {0};
+    oe_datetime_t until = {0};
 
     OE_TRACE_INFO("Calling %s\n", __FUNCTION__);
 
@@ -127,6 +132,16 @@ oe_result_t oe_validate_qe_identity(
         (sgx_ecdsa256_signature_t*)parsed_info.signature,
         &pck_cert_chain));
     OE_TRACE_INFO("oe_verify_ecdsa256_signature succeeded\n");
+
+    // Get leaf certificate
+    OE_CHECK_MSG(
+        oe_cert_chain_get_leaf_cert(&pck_cert_chain, &leaf_cert),
+        "Failed to get leaf certificate.",
+        NULL);
+    oe_cert_get_validity_dates(&leaf_cert, &from, &until);
+
+    oe_datetime_log_info("QE identity cert issue date: ", &from);
+    oe_datetime_log_info("QE identity cert next update: ", &until);
 
     // Check that issue_date and next_update are after the earliest date that
     // the enclave accepts.
@@ -203,10 +218,28 @@ oe_result_t oe_validate_qe_identity(
             parsed_info.attributes_xfrm_mask,
             parsed_info.attributes.xfrm);
 
+    if (oe_datetime_compare(&parsed_info.issue_date, &from) > 0)
+        from = parsed_info.issue_date;
+    if (oe_datetime_compare(&parsed_info.next_update, &until) < 0)
+        until = parsed_info.next_update;
+
+    oe_datetime_log_info("QE identity overall issue date: ", &from);
+    oe_datetime_log_info("QE identity overall next update: ", &until);
+    if (oe_datetime_compare(&from, &until) > 0)
+        OE_RAISE_MSG(
+            OE_VERIFY_FAILED_TO_FIND_VALIDITY_PERIOD,
+            "Failed to find an overall revocation validity period.",
+            NULL);
+
+    *validity_from = from;
+    *validity_until = until;
+
     result = OE_OK;
 
 done:
     if (pck_cert_chain.impl[0] != 0)
         oe_cert_chain_free(&pck_cert_chain);
+    oe_cert_free(&leaf_cert);
+
     return result;
 }

@@ -9,6 +9,14 @@
 
 OE_EXTERNC_BEGIN
 
+/**
+ * Get the collaterals for the respective remote report.
+ *
+ * @param remote_report[in] The remote report.
+ * @param remote_report_size[in] The size of the remote report.
+ * @param collaterals_buffer[out] The buffer where to store the collaterals.
+ * @param collaterals_buffer_size[out] The size of the collaterals.
+ */
 oe_result_t oe_get_collaterals_internal(
     const uint8_t* remote_report,
     size_t remote_report_size,

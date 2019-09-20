@@ -93,6 +93,7 @@ elseif (WIN32)
     crypto/bcrypt/rsa.c
     crypto/bcrypt/sha.c
     crypto/bcrypt/pem.c
+    crypto/bcrypt/util.c
     windows/hostthread.c)
 
   set(PLATFORM_SDK_ONLY_SRC

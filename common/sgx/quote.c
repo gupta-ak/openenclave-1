@@ -13,6 +13,8 @@
 #include "qeidentity.h"
 #include "revocation.h"
 
+#include <time.h>
+
 // Public key of Intel's root certificate.
 static const char* g_expected_root_certificate_key =
     "-----BEGIN PUBLIC KEY-----\n"
@@ -235,8 +237,8 @@ static oe_result_t oe_verify_quote_internal(
             &quote_auth_data,
             &qe_auth_data,
             &qe_cert_data),
-        "Failed to parse quote.",
-        NULL);
+        "Failed to parse quote. %s",
+        oe_result_str(result));
 
     pem_pck_certificate = qe_cert_data.data;
     pem_pck_certificate_size = qe_cert_data.size;
@@ -405,8 +407,8 @@ oe_result_t oe_get_quote_cert_chain_internal(
             &quote_auth_data,
             &qe_auth_data,
             &qe_cert_data),
-        "Failed to parse quote.",
-        NULL);
+        "Failed to parse quote. %s",
+        oe_result_str(result));
 
     *pem_pck_certificate = qe_cert_data.data;
     *pem_pck_certificate_size = qe_cert_data.size;
@@ -421,24 +423,36 @@ done:
     return result;
 }
 
+static void _update_validity(
+    oe_datetime_t* latest_from,
+    oe_datetime_t* earliest_until,
+    oe_datetime_t* from,
+    oe_datetime_t* until)
+{
+    if (oe_datetime_compare(from, latest_from) > 0)
+    {
+        *latest_from = *from;
+    }
+
+    if (oe_datetime_compare(until, earliest_until) < 0)
+    {
+        *earliest_until = *until;
+    }
+}
+
 oe_result_t oe_verify_quote_internal_with_collaterals(
     const uint8_t* quote,
     size_t quote_size,
     const uint8_t* collaterals,
-    size_t collaterals_size)
+    size_t collaterals_size,
+    oe_datetime_t* input_validation_time)
 {
     oe_result_t result = OE_UNEXPECTED;
 
-    const uint8_t* pem_pck_certificate = NULL;
-    size_t pem_pck_certificate_size = 0;
-    oe_cert_chain_t pck_cert_chain = {0};
-    oe_cert_t leaf_cert = {0};
-    sgx_quote_t* sgx_quote = NULL;
-    sgx_quote_auth_data_t* quote_auth_data = NULL;
-    sgx_qe_auth_data_t qe_auth_data = {0};
-    sgx_qe_cert_data_t qe_cert_data = {0};
-    oe_collaterals_header_t* col_header = NULL;
-    oe_collaterals_t* col = NULL;
+    oe_datetime_t validity_from = {0};
+    oe_datetime_t validity_until = {0};
+    oe_datetime_t validation_time = {0};
+
     bool no_collaterals = false;
 
     if (quote == NULL)
@@ -478,70 +492,197 @@ oe_result_t oe_verify_quote_internal_with_collaterals(
     if (!no_collaterals)
     {
         OE_CHECK_MSG(
-            _parse_quote(
+            oe_get_quote_validity_with_collaterals_internal(
                 quote,
                 quote_size,
-                &sgx_quote,
-                &quote_auth_data,
-                &qe_auth_data,
-                &qe_cert_data),
-            "Failed to parse quote.",
-            NULL);
-
-        pem_pck_certificate = qe_cert_data.data;
-        pem_pck_certificate_size = qe_cert_data.size;
-
-        OE_CHECK_MSG(
-            oe_cert_chain_read_pem(
-                &pck_cert_chain, pem_pck_certificate, pem_pck_certificate_size),
-            "Failed to parse certificate chain.",
-            NULL);
-
-        // Fetch leaf and intermediate certificates.
-        OE_CHECK_MSG(
-            oe_cert_chain_get_leaf_cert(&pck_cert_chain, &leaf_cert),
-            "Failed to get leaf certificate. %s",
+                collaterals,
+                collaterals_size,
+                &validity_from,
+                &validity_until),
+            "Failed to validate quote. %s",
             oe_result_str(result));
 
-        // Verify collateral info
-        col_header = (oe_collaterals_header_t*)collaterals;
-        col = (oe_collaterals_t*)(collaterals + OE_COLLATERALS_HEADER_SIZE);
-
-        if (col_header->id_version != OE_COLLATERALS_HEADER_VERSION)
+        // Verify quote/collaterals for the given time.  Use current time
+        // if one was not provided.
+        if (input_validation_time == NULL)
         {
-            OE_RAISE_MSG(
-                OE_INVALID_PARAMETER,
-                "Collateral version id is invalid.",
-                NULL);
+            time_t now;
+            struct tm* timeinfo;
+
+            time(&now);
+            timeinfo = gmtime(&now);
+
+            validation_time.year = (uint32_t)timeinfo->tm_year + 1900;
+            validation_time.month = (uint32_t)timeinfo->tm_mon + 1;
+            validation_time.day = (uint32_t)timeinfo->tm_mday;
+            validation_time.hours = (uint32_t)timeinfo->tm_hour;
+            validation_time.minutes = (uint32_t)timeinfo->tm_min;
+            validation_time.seconds = (uint32_t)timeinfo->tm_sec;
         }
-        if (col_header->enclave_type != OE_ENCLAVE_TYPE_SGX)
+        else
+            validation_time = *input_validation_time;
+
+        oe_datetime_log_info("Validation datetime: ", &validation_time);
+        if (oe_datetime_compare(&validation_time, &validity_from) < 0)
         {
-            OE_RAISE_MSG(
-                OE_INVALID_PARAMETER,
-                "Collateral enclave type is invalid.",
-                NULL);
+            // TODO: TCB Info data is expired. Change to raise an error
+            // once it is resolved.
+            oe_datetime_log_info("Earliest valid to: ", &validity_until);
+            OE_TRACE_WARNING("Time to validate quote is earlier than the "
+                             "latest 'valid from' value.");
         }
-
-        OE_CHECK_MSG(
-            oe_validate_revocation_list(&leaf_cert, &col->revocation_info),
-            "Failed to validate CRL and TCB collaterals. %s",
-            oe_result_str(result));
-
-        //
-        // TODO: Skipping this check since cannot get qe_identity_info from
-        //       az-dcap-client.
-        //
-        OE_CHECK_MSG(
-            oe_validate_qe_identity(
-                &quote_auth_data->qe_report_body, &col->qe_id_info),
-            "Quoting enclave identity checking",
-            NULL);
+        if (oe_datetime_compare(&validation_time, &validity_until) > 0)
+        {
+            // TODO: TCB Info data is expired. Change to raise an error
+            // once it is resolved.
+            oe_datetime_log_info("Earliest valid to: ", &validity_until);
+            OE_TRACE_WARNING("Time to validate quoteis later than the "
+                             "earliest 'valid to' value.");
+        }
     }
 
     result = OE_OK;
 
 done:
-    oe_cert_free(&leaf_cert);
+    return result;
+}
+
+oe_result_t oe_get_quote_validity_with_collaterals_internal(
+    const uint8_t* quote,
+    const size_t quote_size,
+    const uint8_t* collaterals,
+    size_t collaterals_size,
+    oe_datetime_t* valid_from,
+    oe_datetime_t* valid_until)
+{
+    oe_result_t result = OE_UNEXPECTED;
+
+    sgx_quote_t* sgx_quote = NULL;
+    sgx_quote_auth_data_t* quote_auth_data = NULL;
+    sgx_qe_auth_data_t qe_auth_data = {0};
+    sgx_qe_cert_data_t qe_cert_data = {0};
+
+    const uint8_t* pem_pck_certificate = NULL;
+    size_t pem_pck_certificate_size = 0;
+    oe_cert_chain_t pck_cert_chain = {0};
+
+    oe_collaterals_header_t* col_header = (oe_collaterals_header_t*)collaterals;
+    oe_collaterals_t* col =
+        (oe_collaterals_t*)(collaterals + OE_COLLATERALS_HEADER_SIZE);
+
+    oe_cert_t root_cert = {0};
+    oe_cert_t intermediate_cert = {0};
+    oe_cert_t pck_cert = {0};
+
+    oe_datetime_t latest_from = {0};
+    oe_datetime_t earliest_until = {0};
+    oe_datetime_t from;
+    oe_datetime_t until;
+
+    if ((quote == NULL) || (collaterals == NULL) || (valid_from == NULL) ||
+        (valid_until == NULL))
+        OE_RAISE(OE_INVALID_PARAMETER);
+
+    if ((col_header->collaterals_size != OE_COLLATERALS_BODY_SIZE) ||
+        (collaterals_size != OE_COLLATERALS_SIZE))
+        OE_RAISE_MSG(OE_INVALID_PARAMETER, "Invalid collaterals size.", NULL);
+
+    if (col_header->id_version != OE_COLLATERALS_HEADER_VERSION)
+        OE_RAISE_MSG(
+            OE_INVALID_PARAMETER, "Collateral version id is invalid.", NULL);
+
+    if (col_header->enclave_type != OE_ENCLAVE_TYPE_SGX)
+        OE_RAISE_MSG(
+            OE_INVALID_PARAMETER, "Collateral enclave type is invalid.", NULL);
+
+    OE_TRACE_INFO("Call enter %s\n", __FUNCTION__);
+
+    OE_CHECK_MSG(
+        _parse_quote(
+            quote,
+            quote_size,
+            &sgx_quote,
+            &quote_auth_data,
+            &qe_auth_data,
+            &qe_cert_data),
+        "Failed to parse quote. %s",
+        oe_result_str(result));
+
+    pem_pck_certificate = qe_cert_data.data;
+    pem_pck_certificate_size = qe_cert_data.size;
+
+    OE_CHECK_MSG(
+        oe_get_quote_cert_chain_internal(
+            quote,
+            quote_size,
+            &pem_pck_certificate,
+            &pem_pck_certificate_size,
+            &pck_cert_chain),
+        "Failed to retreive PCK cert chain. %s",
+        oe_result_str(result));
+
+    // Fetch certificates.
+    OE_CHECK_MSG(
+        oe_cert_chain_get_leaf_cert(&pck_cert_chain, &pck_cert),
+        "Failed to get leaf certificate.",
+        NULL);
+    OE_CHECK_MSG(
+        oe_cert_chain_get_root_cert(&pck_cert_chain, &root_cert),
+        "Failed to get root certificate.",
+        NULL);
+    OE_CHECK_MSG(
+        oe_cert_chain_get_cert(&pck_cert_chain, 1, &intermediate_cert),
+        "Failed to get intermediate certificate.",
+        NULL);
+
+    // Process certs validity dates.
+    OE_CHECK_MSG(
+        oe_cert_get_validity_dates(&root_cert, &latest_from, &earliest_until),
+        "Failed to get validity info from cert. %s",
+        oe_result_str(result));
+    OE_CHECK_MSG(
+        oe_cert_get_validity_dates(&intermediate_cert, &from, &until),
+        "Failed to get validity info from cert. %s",
+        oe_result_str(result));
+    _update_validity(&latest_from, &earliest_until, &from, &until);
+
+    OE_CHECK_MSG(
+        oe_cert_get_validity_dates(&pck_cert, &from, &until),
+        "Failed to get validity info from cert. %s",
+        oe_result_str(result));
+    _update_validity(&latest_from, &earliest_until, &from, &until);
+
+    // Fetch revocation info validity dates.
+    OE_CHECK_MSG(
+        oe_validate_revocation_list(
+            &pck_cert, &col->revocation_info, &from, &until),
+        "Failed to validation revocation info. %s",
+        oe_result_str(result));
+    _update_validity(&latest_from, &earliest_until, &from, &until);
+
+    // QE identity info validity dates.
+    OE_CHECK_MSG(
+        oe_validate_qe_identity(
+            &quote_auth_data->qe_report_body, &col->qe_id_info, &from, &until),
+        "Failed quoting enclave identity checking. %s",
+        oe_result_str(result));
+    _update_validity(&latest_from, &earliest_until, &from, &until);
+
+    oe_datetime_log_info("Quote overall issue date: ", &latest_from);
+    oe_datetime_log_info("Quote overall next update: ", &earliest_until);
+    if (oe_datetime_compare(&latest_from, &earliest_until) > 0)
+        // TODO: TCB Info data is expired. Change to raise an error
+        // once it is resolved.
+        OE_TRACE_WARNING("Failed to find an overall validity period in quote.");
+    *valid_from = latest_from;
+    *valid_until = earliest_until;
+
+    result = OE_OK;
+
+done:
+    oe_cert_free(&pck_cert);
+    oe_cert_free(&intermediate_cert);
+    oe_cert_free(&root_cert);
     oe_cert_chain_free(&pck_cert_chain);
 
     return result;

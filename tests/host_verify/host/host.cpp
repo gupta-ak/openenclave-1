@@ -165,7 +165,11 @@ static oe_result_t oe_verify_remote_report_with_collaterals(
 
     // Quote attestation can be done entirely on the host side.
     OE_CHECK(oe_verify_quote_internal_with_collaterals(
-        header->report, header->report_size, collaterals, collaterals_size));
+        header->report,
+        header->report_size,
+        collaterals,
+        collaterals_size,
+        NULL));
 
     // Optionally return parsed report.
     if (parsed_report != NULL)

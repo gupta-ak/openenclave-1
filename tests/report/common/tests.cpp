@@ -16,6 +16,8 @@
 #include "../../../common/sgx/quote.h"
 #include "../../../common/sgx/revocation.h"
 
+#include <time.h>
+
 /**
  * Get collateral data which can be used with future function
  * oe_verify_report_with_collaterals().
@@ -146,6 +148,7 @@ static oe_result_t oe_verify_report_with_collaterals(
     size_t report_size,
     const uint8_t* collaterals,
     size_t collaterals_size,
+    oe_datetime_t* input_validation_time,
     oe_report_t* parsed_report)
 {
     oe_result_t result = OE_UNEXPECTED;
@@ -176,7 +179,8 @@ static oe_result_t oe_verify_report_with_collaterals(
             header->report,
             header->report_size,
             collaterals,
-            collaterals_size));
+            collaterals_size,
+            input_validation_time));
 
         // Optionally return parsed report.
         if (parsed_report != NULL)
@@ -223,8 +227,8 @@ void oe_free_collaterals(uint8_t* collaterals_buffer)
         oe_collaterals_t* collaterals =
             (oe_collaterals_t*)(collaterals_buffer + OE_COLLATERALS_HEADER_SIZE);
 
-        oe_cleanup_qe_identity_info_args(&collaterals->qe_id_info);
-        oe_cleanup_get_revocation_info_args(&collaterals->revocation_info);
+        oe_free_qe_identity_info_args(&collaterals->qe_id_info);
+        oe_free_get_revocation_info_args(&collaterals->revocation_info);
 
         oe_free(collaterals_buffer);
     }
@@ -281,6 +285,7 @@ oe_result_t VerifyReportWithCollaterals(
     size_t report_size,
     const uint8_t* collaterals,
     size_t collaterals_size,
+    oe_datetime_t* input_validation_time,
     oe_report_t* parsed_report)
 {
     oe_report_t tmp_report = {0};
@@ -294,6 +299,7 @@ oe_result_t VerifyReportWithCollaterals(
             report_size,
             collaterals,
             collaterals_size,
+            input_validation_time,
             parsed_report);
     }
     else
@@ -1166,7 +1172,7 @@ void test_verify_report_with_collaterals()
     /* Verify report without collaterals */
     OE_TEST(
         VerifyReportWithCollaterals(
-            report_buffer_ptr, report_ptr_size, NULL, 0, NULL) == OE_OK);
+            report_buffer_ptr, report_ptr_size, NULL, 0, NULL, NULL) == OE_OK);
 
     if (GetCollaterals(&collaterals_buffer_ptr, &collaterals_ptr_size) == OE_OK)
     {
@@ -1179,6 +1185,7 @@ void test_verify_report_with_collaterals()
                 report_ptr_size,
                 collaterals_buffer_ptr,
                 collaterals_ptr_size,
+                NULL, // Validate using current time
                 NULL) == OE_OK);
 
         /* Verify report with collaterals bad collaterals */
@@ -1194,6 +1201,7 @@ void test_verify_report_with_collaterals()
                 report_ptr_size,
                 collaterals_buffer_ptr,
                 collaterals_ptr_size,
+                NULL,
                 NULL) == OE_INVALID_PARAMETER);
         col_header->id_version--;
 
@@ -1205,8 +1213,100 @@ void test_verify_report_with_collaterals()
                 report_ptr_size,
                 collaterals_buffer_ptr,
                 collaterals_ptr_size,
+                NULL,
                 NULL) == OE_INVALID_PARAMETER);
         col_header->enclave_type = OE_ENCLAVE_TYPE_SGX;
+
+/* TODO: Uncomment once TCB Info expiration date is valid. */
+#if 0
+        /* Test with time in the past */
+        time_t t;
+        struct tm* timeinfo;
+        time(&t);
+        timeinfo = gmtime(&t);
+
+        // convert tm to oe_datetime_t
+        oe_datetime_t now = {(uint32_t)timeinfo->tm_year + 1890,
+                             (uint32_t)timeinfo->tm_mon + 1,
+                             (uint32_t)timeinfo->tm_mday,
+                             (uint32_t)timeinfo->tm_hour,
+                             (uint32_t)timeinfo->tm_min,
+                             (uint32_t)timeinfo->tm_sec};
+        OE_TEST(
+            VerifyReportWithCollaterals(
+                report_buffer_ptr,
+                report_ptr_size,
+                collaterals_buffer_ptr,
+                collaterals_ptr_size,
+                &now,
+                NULL) == OE_INVALID_REVOCATION_INFO);
+
+        /* Test with time in the future */
+        now = {(uint32_t)timeinfo->tm_year + 1910,
+               (uint32_t)timeinfo->tm_mon + 1,
+               (uint32_t)timeinfo->tm_mday,
+               (uint32_t)timeinfo->tm_hour,
+               (uint32_t)timeinfo->tm_min,
+               (uint32_t)timeinfo->tm_sec};
+        OE_TEST(
+            VerifyReportWithCollaterals(
+                report_buffer_ptr,
+                report_ptr_size,
+                collaterals_buffer_ptr,
+                collaterals_ptr_size,
+                &now,
+                NULL) == OE_INVALID_REVOCATION_INFO);
+
+        /* Get validity range and use it to validate edge cases.*/
+        oe_datetime_t valid_from = {0};
+        oe_datetime_t valid_until = {0};
+        OE_TEST(
+            oe_get_quote_validity_with_collaterals_internal(
+                report_buffer_ptr,
+                report_ptr_size,
+                collaterals_buffer_ptr,
+                collaterals_ptr_size,
+                &valid_from,
+                &valid_until) == OE_OK);
+        /* At latest valid from date */
+        OE_TEST(
+            VerifyReportWithCollaterals(
+                report_buffer_ptr,
+                report_ptr_size,
+                collaterals_buffer_ptr,
+                collaterals_ptr_size,
+                &valid_from,
+                NULL) == OE_OK);
+        /* At earliest expiration date */
+        OE_TEST(
+            VerifyReportWithCollaterals(
+                report_buffer_ptr,
+                report_ptr_size,
+                collaterals_buffer_ptr,
+                collaterals_ptr_size,
+                &valid_until,
+                NULL) == OE_OK);
+
+        valid_from.seconds -= 1;
+        OE_TEST(
+            VerifyReportWithCollaterals(
+                report_buffer_ptr,
+                report_ptr_size,
+                collaterals_buffer_ptr,
+                collaterals_ptr_size,
+                &valid_from,
+                NULL) == OE_INVALID_REVOCATION_INFO);
+
+        valid_until.seconds += 1;
+        OE_TEST(
+            VerifyReportWithCollaterals(
+                report_buffer_ptr,
+                report_ptr_size,
+                collaterals_buffer_ptr,
+                collaterals_ptr_size,
+                &valid_until,
+                NULL) == OE_OK);
+#endif
     }
 
     oe_free_collaterals(collaterals_buffer_ptr);

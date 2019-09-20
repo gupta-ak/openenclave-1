@@ -52,6 +52,11 @@ int32_t oe_datetime_compare(
     const oe_datetime_t* date1,
     const oe_datetime_t* date2);
 
+/*
+ * Log date at the INFO level.
+ */
+void oe_datetime_log_info(const char* msg, const oe_datetime_t* date);
+
 OE_EXTERNC_END
 
 #endif /* _OE_INTERNAL_DATETIME_H */

@@ -108,8 +108,8 @@ done:
     }
     else if (buffer)
     {
-        oe_cleanup_get_revocation_info_args(&(collaterals->revocation_info));
-        oe_cleanup_qe_identity_info_args(&(collaterals->qe_id_info));
+        oe_free_get_revocation_info_args(&(collaterals->revocation_info));
+        oe_free_qe_identity_info_args(&(collaterals->qe_id_info));
 
         oe_free(buffer);
     }
