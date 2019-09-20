@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 
+include(add_oedebugrt_target)
+
 add_custom_command(OUTPUT localattestation_u.h localattestation_u.c localattestation_args.h
   DEPENDS ${CMAKE_SOURCE_DIR}/localattestation.edl
   COMMAND openenclave::oeedger8r --untrusted ${CMAKE_SOURCE_DIR}/localattestation.edl)
@@ -10,5 +12,7 @@ add_executable(local_attestation_host host.cpp ${CMAKE_CURRENT_BINARY_DIR}/local
 target_include_directories(local_attestation_host PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../ # For common/shared.h
   ${CMAKE_CURRENT_BINARY_DIR})
+
+add_oedebugrt_target(local_attestation_host_debugrt)
 
 target_link_libraries(local_attestation_host openenclave::oehostapp)
