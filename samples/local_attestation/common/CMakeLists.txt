@@ -28,6 +28,7 @@ target_link_libraries(common PUBLIC
   openenclave::oeenclave
   openenclave::oelibcxx)
 else()
+target_link_libraries(common PUBLIC
   openenclave::oeenclave
   openenclave::oelibcxx)
 endif()

@@ -7,6 +7,10 @@ project("Local Attestation Sample" LANGUAGES C CXX)
 
 find_package(OpenEnclave CONFIG REQUIRED)
 
+if(WIN32)
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/../../../../lib/openenclave/cmake")
+endif()
+
 set(CMAKE_CXX_STANDARD 11)
 
 add_subdirectory(common)
