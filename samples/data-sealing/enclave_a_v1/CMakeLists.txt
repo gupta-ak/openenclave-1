@@ -1,5 +1,11 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 
+set(BASH bash.exe)
+set(OE_BIN_DIR ..\\..\\..\\..\\..\\bin)
+
+include(maybe_build_using_clangw)
+
 add_executable(enclave_a_v1 ecalls.cpp)
+maybe_build_using_clangw(enclave_a_v1)
 target_link_libraries(enclave_a_v1 common)
