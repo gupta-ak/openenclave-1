@@ -213,6 +213,7 @@ list(APPEND PLATFORM_HOST_ONLY_SRC
 
 # Common files that are used in the OE SDK only.
 list(APPEND PLATFORM_SDK_ONLY_SRC
+  ../common/attest_plugin.c
   ../common/kdf.c
   ../common/argv.c
   asym_keys.c

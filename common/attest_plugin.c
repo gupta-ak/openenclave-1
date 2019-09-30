@@ -4,7 +4,6 @@
 #include <openenclave/bits/defs.h>
 #include <openenclave/bits/safecrt.h>
 #include <openenclave/bits/safemath.h>
-#include <openenclave/enclave.h>
 #include <openenclave/internal/cert.h>
 #include <openenclave/internal/crypto/sha.h>
 #include <openenclave/internal/print.h>
@@ -16,6 +15,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifndef OE_BUILD_ENCLAVE
+#include <pthread.h>
+#endif
+
 #include "../common/common.h"
 
 struct plugin_list_node_t
@@ -24,8 +27,18 @@ struct plugin_list_node_t
     struct plugin_list_node_t* next;
 };
 
-static oe_mutex_t g_plugin_list_mutex = OE_MUTEX_INITIALIZER;
 struct plugin_list_node_t* g_plugins = NULL;
+
+// oe_mutex_t doesn't exist for host side, so we use pthread mutex.
+#ifdef OE_BUILD_ENCLAVE
+static oe_mutex_t g_plugin_list_mutex = OE_MUTEX_INITIALIZER;
+#define PLUGIN_LIST_LOCK(m) oe_mutex_lock(m)
+#define PLUGIN_LIST_UNLOCK(m) oe_mutex_unlock(m)
+#else
+static pthread_mutex_t g_plugin_list_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define PLUGIN_LIST_LOCK(m) pthread_mutex_lock(m)
+#define PLUGIN_LIST_UNLOCK(m) pthread_mutex_unlock(m)
+#endif
 
 static void _dump_attestation_plugin_list()
 {
@@ -33,7 +46,7 @@ static void _dump_attestation_plugin_list()
 
     OE_TRACE_INFO("Calling oe_register_attestation_plugin: format_id list\n");
 
-    oe_mutex_lock(&g_plugin_list_mutex);
+    PLUGIN_LIST_LOCK(&g_plugin_list_mutex);
     cur = g_plugins;
     while (cur)
     {
@@ -43,7 +56,7 @@ static void _dump_attestation_plugin_list()
         }
         cur = cur->next;
     }
-    oe_mutex_unlock(&g_plugin_list_mutex);
+    PLUGIN_LIST_UNLOCK(&g_plugin_list_mutex);
 }
 
 static struct plugin_list_node_t* _find_plugin(
@@ -57,7 +70,7 @@ static struct plugin_list_node_t* _find_plugin(
         *prev = NULL;
 
     // Find a plugin for attestation type.
-    oe_mutex_lock(&g_plugin_list_mutex);
+    PLUGIN_LIST_LOCK(&g_plugin_list_mutex);
     cur = g_plugins;
     while (cur)
     {
@@ -73,7 +86,7 @@ static struct plugin_list_node_t* _find_plugin(
             *prev = cur;
         cur = cur->next;
     }
-    oe_mutex_unlock(&g_plugin_list_mutex);
+    PLUGIN_LIST_UNLOCK(&g_plugin_list_mutex);
     return ret;
 }
 
@@ -111,10 +124,10 @@ oe_result_t oe_register_attestation_plugin(
     plugin_node->plugin_context = plugin;
 
     // Add to the plugin list.
-    oe_mutex_lock(&g_plugin_list_mutex);
+    PLUGIN_LIST_LOCK(&g_plugin_list_mutex);
     plugin_node->next = g_plugins;
     g_plugins = plugin_node;
-    oe_mutex_unlock(&g_plugin_list_mutex);
+    PLUGIN_LIST_UNLOCK(&g_plugin_list_mutex);
 
     _dump_attestation_plugin_list();
     result = OE_OK;
@@ -143,12 +156,12 @@ oe_result_t oe_unregister_attestation_plugin(
         OE_RAISE(OE_NOT_FOUND);
     }
 
-    oe_mutex_lock(&g_plugin_list_mutex);
+    PLUGIN_LIST_LOCK(&g_plugin_list_mutex);
     if (prev != NULL)
         prev->next = cur->next;
     else
         g_plugins = NULL;
-    oe_mutex_unlock(&g_plugin_list_mutex);
+    PLUGIN_LIST_UNLOCK(&g_plugin_list_mutex);
 
     // Run the unregister hook for the plugin.
     if (cur->plugin_context->on_unregister(cur->plugin_context) != 0)

@@ -26,9 +26,9 @@ elseif(OE_TRUSTZONE)
 endif()
 
 add_library(oeenclave STATIC
+    ../common/attest_plugin.c
     ../common/datetime.c
     asym_keys.c
-    attest_plugin.c
     link.c
     random.c
     tls_cert.c
