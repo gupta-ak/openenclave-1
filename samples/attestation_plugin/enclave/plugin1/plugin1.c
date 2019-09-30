@@ -147,7 +147,7 @@ static int oe_verify_evidence(
 }
 
 oe_quote_customization_plugin_context_t oe_plugin_context = {
-    .evidence_format_uuid = UUID_INIT(
+    .format_id = UUID_INIT(
         0x6EBB65E5,
         0xF657,
         0x48B1,

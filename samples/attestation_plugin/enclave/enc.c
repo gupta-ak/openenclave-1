@@ -49,7 +49,7 @@ void enclave_attestation_plugin()
         "evidence_format_uuid (1)\n");
 
     result = oe_get_attestation_evidence(
-        &plugin1->evidence_format_uuid,
+        &plugin1->format_id,
         (const uint8_t*)"Hello World!",
         sizeof("Hello World!") - 1,
         &evidence_buffer1,

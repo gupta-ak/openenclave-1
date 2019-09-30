@@ -89,20 +89,20 @@ oe_result_t oe_parse_report(
     if (header->version != OE_REPORT_HEADER_VERSION)
         OE_RAISE(OE_INVALID_PARAMETER);
 
-    if ((header->tee_evidence_size + header->custom_evidence_size +
+    if ((header->evidence_size + header->user_data_size +
          sizeof(oe_evidence_header_t)) != report_size)
         OE_RAISE(OE_INCORRECT_REPORT_SIZE);
 
-    if (header->tee_evidence_type == OE_TEE_TYPE_SGX_LOCAL)
+    if (header->type == OE_TEE_TYPE_SGX_LOCAL)
     {
-        sgx_report = (const sgx_report_t*)header->tee_evidence;
+        sgx_report = (const sgx_report_t*)header->evidence;
         OE_CHECK(
             _parse_sgx_report_body(&sgx_report->body, false, parsed_report));
         result = OE_OK;
     }
-    else if (header->tee_evidence_type == OE_TEE_TYPE_SGX_REMOTE)
+    else if (header->type == OE_TEE_TYPE_SGX_REMOTE)
     {
-        sgx_quote = (const sgx_quote_t*)header->tee_evidence;
+        sgx_quote = (const sgx_quote_t*)header->evidence;
         OE_CHECK(_parse_sgx_report_body(
             &sgx_quote->report_body, true, parsed_report));
         result = OE_OK;
@@ -169,9 +169,9 @@ static oe_result_t _oe_get_target_info_internal(
     if (report_header->version != OE_REPORT_HEADER_VERSION)
         OE_RAISE(OE_INVALID_PARAMETER);
 
-    report_size -= OE_OFFSETOF(oe_evidence_header_t, tee_evidence);
-    report += OE_OFFSETOF(oe_evidence_header_t, tee_evidence);
-    switch (report_header->tee_evidence_type)
+    report_size -= OE_OFFSETOF(oe_evidence_header_t, evidence);
+    report += OE_OFFSETOF(oe_evidence_header_t, evidence);
+    switch (report_header->type)
     {
         case OE_TEE_TYPE_SGX_LOCAL:
         case OE_TEE_TYPE_SGX_REMOTE:

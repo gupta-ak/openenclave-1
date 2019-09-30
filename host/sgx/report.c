@@ -185,15 +185,12 @@ static oe_result_t _oe_get_report_internal(
     }
 
     header->version = OE_REPORT_HEADER_VERSION;
-    header->tee_evidence_type = (flags & OE_REPORT_FLAGS_REMOTE_ATTESTATION)
-                                    ? OE_TEE_TYPE_SGX_REMOTE
-                                    : OE_TEE_TYPE_SGX_LOCAL;
-    memset(
-        (void*)&header->evidence_format_uuid,
-        0,
-        sizeof(header->evidence_format_uuid));
-    header->tee_evidence_size = (uint32_t)*report_buffer_size;
-    header->custom_evidence_size = 0;
+    header->type = (flags & OE_REPORT_FLAGS_REMOTE_ATTESTATION)
+                       ? OE_TEE_TYPE_SGX_REMOTE
+                       : OE_TEE_TYPE_SGX_LOCAL;
+    memset((void*)&header->format_id, 0, sizeof(header->format_id));
+    header->evidence_size = (uint32_t)*report_buffer_size;
+    header->user_data_size = 0;
     OE_CHECK(oe_safe_add_u64(
         *report_buffer_size, sizeof(oe_evidence_header_t), report_buffer_size));
     result = OE_OK;
@@ -290,7 +287,7 @@ oe_result_t oe_verify_report(
     // Ensure that the report is parseable before using the header.
     OE_CHECK(oe_parse_report(report, report_size, &oe_report));
 
-    if (header->tee_evidence_type == OE_TEE_TYPE_SGX_REMOTE)
+    if (header->type == OE_TEE_TYPE_SGX_REMOTE)
     {
         // Intialize the quote provider if we want to verify a remote quote.
         // Note that we don't have the OE_USE_LIBSGX guard here since we don't
@@ -300,9 +297,9 @@ oe_result_t oe_verify_report(
 
         // Quote attestation can be done entirely on the host side.
         OE_CHECK(oe_verify_quote_internal_with_collaterals(
-            header->report, header->report_size, NULL, 0, NULL));
+            header->evidence, header->evidence_size, NULL, 0, NULL));
     }
-    else if (header->tee_evidence_type == OE_TEE_TYPE_SGX_LOCAL)
+    else if (header->type == OE_TEE_TYPE_SGX_LOCAL)
     {
         uint32_t retval;
 
