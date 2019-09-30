@@ -31,8 +31,7 @@ static void _dump_attestation_plugin_list()
 {
     struct plugin_list_node_t* cur = NULL;
 
-    OE_TRACE_INFO(
-        "Calling oe_register_attestation_plugin: evidence_format_uuid list\n");
+    OE_TRACE_INFO("Calling oe_register_attestation_plugin: format_id list\n");
 
     oe_mutex_lock(&g_plugin_list_mutex);
     cur = g_plugins;
@@ -40,8 +39,7 @@ static void _dump_attestation_plugin_list()
     {
         for (int i = 0; i < UUID_SIZE; i++)
         {
-            OE_TRACE_INFO(
-                "0x%0x\n", cur->plugin_context->evidence_format_uuid.b[i]);
+            OE_TRACE_INFO("0x%0x\n", cur->plugin_context->format_id.b[i]);
         }
         cur = cur->next;
     }
@@ -49,7 +47,7 @@ static void _dump_attestation_plugin_list()
 }
 
 static struct plugin_list_node_t* _find_plugin(
-    const uuid_t* target_evidence_format_uuid,
+    const uuid_t* target_format_id,
     struct plugin_list_node_t** prev)
 {
     struct plugin_list_node_t* ret = NULL;
@@ -64,8 +62,8 @@ static struct plugin_list_node_t* _find_plugin(
     while (cur)
     {
         if (memcmp(
-                &cur->plugin_context->evidence_format_uuid,
-                target_evidence_format_uuid,
+                &cur->plugin_context->format_id,
+                target_format_id,
                 sizeof(uuid_t)) == 0)
         {
             ret = cur;
@@ -89,13 +87,13 @@ oe_result_t oe_register_attestation_plugin(
 
     OE_TRACE_INFO("Calling oe_register_attestation_plugin");
 
-    plugin_node = _find_plugin(&plugin->evidence_format_uuid, NULL);
+    plugin_node = _find_plugin(&plugin->format_id, NULL);
     if (plugin_node)
     {
         OE_TRACE_ERROR(
             "Calling oe_register_attestation_plugin failed: "
-            "evidence_format_uuid[%s] already existed",
-            plugin->evidence_format_uuid);
+            "format_id[%s] already existed",
+            plugin->format_id);
         plugin_node = NULL;
         OE_RAISE(OE_ALREADY_EXISTS);
     }
@@ -135,13 +133,13 @@ oe_result_t oe_unregister_attestation_plugin(
     OE_TRACE_INFO("Calling oe_unregister_attestation_plugin 1");
 
     // Find the guid and remove it.
-    cur = _find_plugin(&plugin->evidence_format_uuid, &prev);
+    cur = _find_plugin(&plugin->format_id, &prev);
     if (cur == NULL)
     {
         OE_TRACE_ERROR(
             "Calling oe_unregister_attestation_plugin failed: "
-            "evidence_format_uuid[%s] was not registered before",
-            plugin->evidence_format_uuid);
+            "format_id[%s] was not registered before",
+            plugin->format_id);
         OE_RAISE(OE_NOT_FOUND);
     }
 
@@ -165,7 +163,7 @@ done:
 }
 
 oe_result_t oe_get_attestation_evidence(
-    const uuid_t* evidence_format_uuid,
+    const uuid_t* format_id,
     const uint8_t* user_data,
     size_t user_data_size,
     uint8_t** evidence_buffer,
@@ -182,7 +180,7 @@ oe_result_t oe_get_attestation_evidence(
     oe_evidence_header_t* header;
 
     // Find a plugin for attestation type and run its get_evidence.
-    plugin_node = _find_plugin(evidence_format_uuid, NULL);
+    plugin_node = _find_plugin(format_id, NULL);
     if (plugin_node == NULL)
         OE_RAISE(OE_NOT_FOUND);
 
@@ -212,10 +210,10 @@ oe_result_t oe_get_attestation_evidence(
     // TODO(akagup): Fix oe report header to only have 1 size parameter.
     header = (oe_evidence_header_t*)total_evidence_buf;
     header->version = OE_REPORT_HEADER_VERSION;
-    header->evidence_format_uuid = *evidence_format_uuid;
-    header->tee_evidence_type = OE_TEE_TYPE_CUSTOM;
-    header->tee_evidence_size = 0;
-    header->custom_evidence_size = (uint32_t)plugin_evidence_size;
+    header->format_id = *format_id;
+    header->type = OE_TEE_TYPE_CUSTOM;
+    header->evidence_size = 0;
+    header->user_data_size = (uint32_t)plugin_evidence_size;
     memcpy(
         total_evidence_buf + sizeof(oe_evidence_header_t),
         plugin_evidence,
@@ -254,14 +252,14 @@ oe_result_t oe_verify_attestation_evidence(
     if (!evidence_buffer || evidence_buffer_size < sizeof(*header))
         OE_RAISE(OE_INVALID_PARAMETER);
 
-    plugin_node = _find_plugin(&header->evidence_format_uuid, NULL);
+    plugin_node = _find_plugin(&header->format_id, NULL);
     if (plugin_node == NULL)
         OE_RAISE(OE_NOT_FOUND);
 
     ret = plugin_node->plugin_context->verify_evidence(
         plugin_node->plugin_context,
         evidence_buffer + sizeof(*header),
-        header->custom_evidence_size,
+        header->user_data_size,
         claims,
         claims_count,
         user_data,

@@ -32,7 +32,7 @@ typedef struct _oe_quote_customization_plugin_context
     /**
      * The UUID for the plugin.
      */
-    uuid_t evidence_format_uuid;
+    uuid_t format_id;
 
     /**
      * The function that gets executed when a plugin is registered.

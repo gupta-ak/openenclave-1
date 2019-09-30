@@ -204,15 +204,16 @@ static oe_result_t _gen_report(
             {
                 uint8_t* collaterals = NULL;
                 size_t collaterals_size = 0;
-                oe_report_header_t* header = (oe_report_header_t*)remote_report;
+                oe_evidence_header_t* header =
+                    (oe_evidence_header_t*)remote_report;
 
                 sprintf(collateral_filename, "%s.col", report_filename);
                 printf(
                     "Generatting collateral file: %s\n", collateral_filename);
 
                 result = oe_get_collaterals_internal(
-                    header->report,
-                    header->report_size,
+                    header->evidence,
+                    header->evidence_size,
                     &collaterals,
                     &collaterals_size);
                 if (result != OE_OK)

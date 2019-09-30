@@ -187,12 +187,11 @@ typedef struct
 typedef struct _oe_evidence_header
 {
     uint32_t version;
-    oe_tee_evidence_type_t tee_evidence_type; // TEE type
-    uuid_t evidence_format_uuid;   // uuid for specific attestation format
-    uint32_t tee_evidence_size;    // not including custom evidence
-    uint32_t custom_evidence_size; // size of custom evidence, which follows
-                                   // right after report data
-    uint8_t tee_evidence[];
+    oe_tee_evidence_type_t type; // TEE type
+    uuid_t format_id;            // uuid for specific attestation format
+    uint32_t evidence_size;      // Size not including the user data
+    uint32_t user_data_size;     // Size of user data that follows evidence
+    uint8_t evidence[];
 } oe_evidence_header_t;
 
 // name = value (a byte stream)
