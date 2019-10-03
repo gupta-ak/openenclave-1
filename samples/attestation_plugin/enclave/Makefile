@@ -25,7 +25,7 @@ all:
 build:
 	@ echo "Compilers used: $(CC), $(CXX)"
 	oeedger8r ../attestation_plugin.edl --trusted
-	$(CC) -g -c $(CFLAGS) -DOE_API_VERSION=2 enc.c ./plugin1/plugin1.c
+	$(CC) -g -c $(CFLAGS) -DOE_BUILD_ENCLAVE -DOE_API_VERSION=2 enc.c ../plugin1/plugin1.c
 	$(CC) -g -c $(CFLAGS) -DOE_API_VERSION=2 attestation_plugin_t.c -o attestation_plugin_t.o
 	$(CC) -o attestation_plugin_enc attestation_plugin_t.o enc.o plugin1.o $(LDFLAGS)
 
@@ -33,7 +33,7 @@ sign:
 	oesign sign -e attestation_plugin_enc -c attestation_plugin.conf -k private.pem
 
 clean:
-	rm -f enc.o attestation_plugin_enc attestation_plugin_enc.signed private.pem public.pem attestation_plugin_t.o attestation_plugin_t.h attestation_plugin_t.c attestation_plugin_args.h ./plugin1/plugin1.o
+	rm -f enc.o attestation_plugin_enc attestation_plugin_enc.signed private.pem public.pem attestation_plugin_t.o attestation_plugin_t.h attestation_plugin_t.c attestation_plugin_args.h plugin1.o plugin2.o
 
 keys:
 	openssl genrsa -out private.pem -3 3072

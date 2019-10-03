@@ -9,6 +9,11 @@
 // sdk tool oeedger8r against the attestation_plugin.edl file.
 #include "attestation_plugin_u.h"
 
+// Include plugin1's helpers
+#include "../plugin1/plugin1.h"
+
+oe_quote_customization_plugin_context_t* plugin1 = NULL;
+
 bool check_simulate_opt(int* argc, const char* argv[])
 {
     for (int i = 0; i < *argc; i++)
@@ -26,9 +31,47 @@ bool check_simulate_opt(int* argc, const char* argv[])
 
 // This is the function that the enclave will call back into to
 // print a message.
-void host_attestation_plugin()
+void host_attestation_plugin(const void* evidence, size_t evidence_size)
 {
+    oe_result_t result = OE_FAILURE;
+    oe_claim_element_t* claims = NULL;
+    size_t claims_count = 0;
+    uint8_t* user_data = NULL;
+    size_t user_data_size = 0;
+
     fprintf(stdout, "Enclave called into host to print: attestation_plugin!\n");
+
+    printf("Verifying attestation evidence with size=%zu\n", evidence_size);
+    result = oe_verify_attestation_evidence(
+        evidence,
+        evidence_size,
+        &claims,
+        &claims_count,
+        &user_data,
+        &user_data_size);
+    if (result != OE_OK)
+    {
+        fprintf(
+            stdout,
+            "host::oe_verify_attestation_evidence failed for "
+            "evidence_format_uuid (1) with %s\n",
+            oe_result_str(result));
+        return;
+    }
+
+    fprintf(
+        stdout,
+        "host::oe_verify_attestation_evidence succeeded for "
+        "evidence_format_uuid "
+        "(1)\n");
+
+    printf(
+        "Returned user data was (size=%zu) %s\n",
+        user_data_size,
+        (const char*)user_data);
+
+    oe_free_claims_list(claims, claims_count);
+    free(user_data);
 }
 
 int main(int argc, const char* argv[])
@@ -47,6 +90,19 @@ int main(int argc, const char* argv[])
     {
         fprintf(
             stderr, "Usage: %s enclave_image_path [ --simulate  ]\n", argv[0]);
+        goto exit;
+    }
+
+    // Register attestation plugins.
+    plugin1 = create_plugin1();
+    result = oe_register_attestation_plugin(plugin1, NULL, 0);
+    if (result != OE_OK)
+    {
+        fprintf(
+            stdout,
+            "host::oe_register_attestation_plugin failed: result=%u (%s)\n",
+            result,
+            oe_result_str(result));
         goto exit;
     }
 
@@ -70,6 +126,17 @@ int main(int argc, const char* argv[])
         fprintf(
             stderr,
             "calling into enclave_attestation_plugin failed: result=%u (%s)\n",
+            result,
+            oe_result_str(result));
+        goto exit;
+    }
+
+    result = oe_unregister_attestation_plugin(plugin1);
+    if (result != OE_OK)
+    {
+        fprintf(
+            stderr,
+            "calling host::oe_unregister_plugin failed: result=%u (%s)\n",
             result,
             oe_result_str(result));
         goto exit;
