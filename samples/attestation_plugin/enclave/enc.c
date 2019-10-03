@@ -12,15 +12,8 @@
 // Contains a helper function to generate the first plugin.
 #include "../plugin1/plugin1.h"
 
-// Define the custom user data.
-#define USER_DATA                                                              \
-    "{\n"                                                                      \
-    "    \"nonce\": \"09af62b1390237ab\",\n"                                   \
-    "    \"public_key\": "                                                     \
-    "\"04543822c3aba90f34278e84ea0cdb776a005da29182223306c\n"                  \
-    "                   cbc155ddaac033991f8440bdeec5b22ce7c88826ee74ae4cdc7\n" \
-    "                   d05fe8b5027f149019a08bf2081f\"\n"                      \
-    "}"
+// Include the user data.
+#include "../common.h"
 
 // This is function demostrates how an attestation plugin is called.
 void enclave_attestation_plugin()
@@ -29,7 +22,7 @@ void enclave_attestation_plugin()
     uint8_t* evidence_buffer1 = NULL;
     size_t evidence_buffer1_size = 0;
     oe_claim_element_t* claims = NULL;
-    size_t claim_count = 0;
+    size_t claims_count = 0;
     uint8_t* user_data1 = NULL;
     size_t user_data_size1 = 0;
     oe_quote_customization_plugin_context_t* plugin1 = create_plugin1();
@@ -80,7 +73,7 @@ void enclave_attestation_plugin()
         evidence_buffer1,
         evidence_buffer1_size,
         &claims,
-        &claim_count,
+        &claims_count,
         &user_data1,
         &user_data_size1);
     if (result != OE_OK)
@@ -103,6 +96,8 @@ void enclave_attestation_plugin()
         user_data_size1,
         (const char*)user_data1);
 
+    print_claims(claims, claims_count);
+
     // Call back into the host to test the host side plugin.
     result = host_attestation_plugin(evidence_buffer1, evidence_buffer1_size);
     if (result != OE_OK)
@@ -124,5 +119,7 @@ void enclave_attestation_plugin()
         "evidence_format_uuid (1)\n");
 done:
     oe_free_attestation_evidence(evidence_buffer1);
+    oe_free_claims_list(claims, claims_count);
+    free(user_data1);
     return;
 }

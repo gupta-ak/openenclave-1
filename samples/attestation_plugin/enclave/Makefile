@@ -25,7 +25,7 @@ all:
 build:
 	@ echo "Compilers used: $(CC), $(CXX)"
 	oeedger8r ../attestation_plugin.edl --trusted
-	$(CC) -g -c $(CFLAGS) -DOE_BUILD_ENCLAVE -DOE_API_VERSION=2 enc.c ../plugin1/plugin1.c
+	$(CC) -g -c $(CFLAGS) -I.. -DOE_BUILD_ENCLAVE -DOE_API_VERSION=2 enc.c ../plugin1/plugin1.c
 	$(CC) -g -c $(CFLAGS) -DOE_API_VERSION=2 attestation_plugin_t.c -o attestation_plugin_t.o
 	$(CC) -o attestation_plugin_enc attestation_plugin_t.o enc.o plugin1.o $(LDFLAGS)
 

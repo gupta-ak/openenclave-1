@@ -12,6 +12,8 @@
 // Include plugin1's helpers
 #include "../plugin1/plugin1.h"
 
+#include "../common.h"
+
 oe_quote_customization_plugin_context_t* plugin1 = NULL;
 
 bool check_simulate_opt(int* argc, const char* argv[])
@@ -69,6 +71,8 @@ void host_attestation_plugin(const void* evidence, size_t evidence_size)
         "Returned user data was (size=%zu) %s\n",
         user_data_size,
         (const char*)user_data);
+
+    print_claims(claims, claims_count);
 
     oe_free_claims_list(claims, claims_count);
     free(user_data);

@@ -20,7 +20,7 @@ LDFLAGS=$(shell pkg-config oehost-$(COMPILER) --libs)
 build:
 	@ echo "Compilers used: $(CC), $(CXX)"
 	oeedger8r ../attestation_plugin.edl --untrusted
-	$(CC) -g -c $(CFLAGS) host.c ../plugin1/plugin1.c
+	$(CC) -g -c $(CFLAGS) -I.. host.c ../plugin1/plugin1.c
 	$(CC) -g -c $(CFLAGS) attestation_plugin_u.c
 	$(CC) -o attestation_plugin_host attestation_plugin_u.o host.o plugin1.o $(LDFLAGS)
 
