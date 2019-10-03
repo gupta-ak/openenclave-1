@@ -7,6 +7,6 @@ enclave {
     };
 
     untrusted {
-        void host_attestation_plugin();
+        void host_attestation_plugin([in, size=count] const void* buf, size_t count);
     };
 };

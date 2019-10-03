@@ -6,6 +6,6 @@
 
 #include <openenclave/attestation_plugin.h>
 
-oe_quote_customization_plugin_context_t* create_oe_plugin();
+oe_quote_customization_plugin_context_t* create_plugin1();
 
 #endif // _OE_SAMPLE_PLUGIN1_H
