@@ -247,7 +247,7 @@ oe_result_t oe_verify_attestation_evidence(
  * @param[in] claims The claims list.
  * @param[in] claims_count The number of claims in the claims list.
  */
-void oe_free_claim_list(oe_claim_element_t* claims, size_t claims_count);
+void oe_free_claims_list(oe_claim_element_t* claims, size_t claims_count);
 
 OE_EXTERNC_END
 

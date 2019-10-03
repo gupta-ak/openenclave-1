@@ -292,7 +292,7 @@ done:
     return result;
 }
 
-void oe_free_claim_list(oe_claim_element_t* claims, size_t claims_count)
+void oe_free_claims_list(oe_claim_element_t* claims, size_t claims_count)
 {
     if (claims)
     {
