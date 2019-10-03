@@ -209,12 +209,8 @@ void oe_free_attestation_evidence(uint8_t* evidence_buffer);
  * minimum, the following known OE keys:
  *
  * TODO(akagup): Finalize this. These are copied from oe_identity_t.
- *    - id_version: Version of the OE claims. Must be 0.
  *    - security_version: Security version of the enclave. (ISVN for SGX).
- *    - attributes: Values of the attributes flags for the enclave:
- *        - OE_REPORT_ATTRIBUTES_DEBUG: The report is for a debug enclave.
- *        - OE_REPORT_ATTRIBUTES_REMOTE: The report can be used for remote
- *          attestation.
+ *    - debug_flag: 1 if debug is enable, 0 otherwise.
  *    - unique_id: The unique ID for the enclave (MRENCLAVE for SGX).
  *    - signer_id: The signer ID for the enclave (MRSIGNER for SGX).
  *    - product_id: The product ID for the enclave (ISVPRODID for SGX).
