@@ -39,7 +39,7 @@ oe_result_t oe_get_collaterals(
     size_t report_size = OE_MAX_REPORT_SIZE;
     uint8_t* remote_report = NULL;
     oe_report_t* parsed_report = NULL;
-    oe_report_header_t* header = NULL;
+    oe_evidence_header_t* header = NULL;
 
     OE_TRACE_INFO("Enter enclave call %s\n", __FUNCTION__);
 
@@ -66,7 +66,7 @@ oe_result_t oe_get_collaterals(
             &report_size),
         "Failed to get OE remote report. %s",
         oe_result_str(result));
-    header = (oe_report_header_t*)remote_report;
+    header = (oe_evidence_header_t*)remote_report;
 
     OE_CHECK_MSG(
         oe_verify_report(remote_report, report_size, parsed_report),
@@ -88,7 +88,7 @@ oe_result_t oe_get_collaterals(
             &report_size),
         "Failed to get OE remote report. %s",
         oe_result_str(result));
-    header = (oe_report_header_t*)remote_report;
+    header = (oe_evidence_header_t*)remote_report;
 
     OE_CHECK_MSG(
         oe_verify_report(enclave, remote_report, report_size, parsed_report),
@@ -98,8 +98,8 @@ oe_result_t oe_get_collaterals(
 
     OE_CHECK_MSG(
         oe_get_collaterals_internal(
-            header->report,
-            header->report_size,
+            header->evidence,
+            header->evidence_size,
             collaterals_buffer,
             collaterals_buffer_size),
         "Failed to get collaterals. %s",
@@ -156,7 +156,7 @@ static oe_result_t oe_verify_report_with_collaterals(
 {
     oe_result_t result = OE_UNEXPECTED;
     oe_report_t oe_report = {0};
-    oe_report_header_t* header = (oe_report_header_t*)report;
+    oe_evidence_header_t* header = (oe_evidence_header_t*)report;
 
     if (report == NULL)
         OE_RAISE(OE_INVALID_PARAMETER);
@@ -167,7 +167,7 @@ static oe_result_t oe_verify_report_with_collaterals(
     // Ensure that the report is parseable before using the header.
     OE_CHECK(oe_parse_report(report, report_size, &oe_report));
 
-    if (header->report_type == OE_REPORT_TYPE_SGX_REMOTE)
+    if (header->type == OE_TEE_TYPE_SGX_REMOTE)
     {
 #ifndef OE_BUILD_ENCLAVE
         // Intialize the quote provider if we want to verify a remote quote.
@@ -179,8 +179,8 @@ static oe_result_t oe_verify_report_with_collaterals(
 
         // Quote attestation can be done entirely on the host side.
         OE_CHECK(oe_verify_quote_internal_with_collaterals(
-            header->report,
-            header->report_size,
+            header->evidence,
+            header->evidence_size,
             collaterals,
             collaterals_size,
             input_validation_time));
@@ -189,7 +189,7 @@ static oe_result_t oe_verify_report_with_collaterals(
         if (parsed_report != NULL)
             OE_CHECK(oe_parse_report(report, report_size, parsed_report));
     }
-    else if (header->report_type == OE_REPORT_TYPE_SGX_LOCAL)
+    else if (header->type == OE_TEE_TYPE_SGX_LOCAL)
     {
         if (collaterals != NULL || collaterals_size > 0)
         {
@@ -263,7 +263,7 @@ static oe_result_t oe_get_quote_validity_with_collaterals(
 {
     oe_result_t result = OE_UNEXPECTED;
     oe_report_t oe_report = {0};
-    oe_report_header_t* header = (oe_report_header_t*)report;
+    oe_evidence_header_t* header = (oe_evidence_header_t*)report;
 
     if (report == NULL || collaterals == NULL || valid_from == NULL ||
         valid_until == NULL)
@@ -276,7 +276,7 @@ static oe_result_t oe_get_quote_validity_with_collaterals(
     // Ensure that the report is parseable before using the header.
     OE_CHECK(oe_parse_report(report, report_size, &oe_report));
 
-    if (header->report_type == OE_REPORT_TYPE_SGX_REMOTE)
+    if (header->type == OE_TEE_TYPE_SGX_REMOTE)
     {
 #ifndef OE_BUILD_ENCLAVE
         // Intialize the quote provider if we want to verify a remote quote.
@@ -288,8 +288,8 @@ static oe_result_t oe_get_quote_validity_with_collaterals(
 
         // Quote attestation can be done entirely on the host side.
         OE_CHECK(oe_get_quote_validity_with_collaterals_internal(
-            header->report,
-            header->report_size,
+            header->evidence,
+            header->evidence_size,
             collaterals,
             collaterals_size,
             valid_from,
@@ -409,7 +409,8 @@ oe_result_t GetQuoteValidityWithCollaterals(
 
 #endif
 
-#define OE_LOCAL_REPORT_SIZE (sizeof(oe_report_header_t) + sizeof(sgx_report_t))
+#define OE_LOCAL_REPORT_SIZE \
+    (sizeof(oe_evidence_header_t) + sizeof(sgx_report_t))
 
 /*
  * g_unique_id is populated from the first call to oe_parse_report.
@@ -449,7 +450,7 @@ static void ValidateReport(
 {
     sgx_quote_t* sgx_quote = NULL;
     sgx_report_t* sgx_report = NULL;
-    oe_report_header_t* header = (oe_report_header_t*)report_buffer;
+    oe_evidence_header_t* header = (oe_evidence_header_t*)report_buffer;
 
     oe_report_t parsed_report = {0};
 
@@ -466,7 +467,7 @@ static void ValidateReport(
     /* Validate pointer fields. */
     if (remote)
     {
-        sgx_quote = (sgx_quote_t*)header->report;
+        sgx_quote = (sgx_quote_t*)header->evidence;
         OE_TEST(report_size >= sizeof(sgx_quote_t));
 
         OE_TEST(
@@ -480,7 +481,7 @@ static void ValidateReport(
     else
     {
         OE_TEST(report_size == OE_LOCAL_REPORT_SIZE);
-        sgx_report = (sgx_report_t*)header->report;
+        sgx_report = (sgx_report_t*)header->evidence;
 
         OE_TEST(
             parsed_report.report_data == sgx_report->body.report_data.field);
@@ -868,13 +869,13 @@ void test_local_report(sgx_target_info_t* target_info)
         OE_TEST(
             oe_get_target_info_v2(
                 report_buffer_ptr,
-                sizeof(oe_report_header_t) + sizeof(sgx_report_t) - 1,
+                sizeof(oe_evidence_header_t) + sizeof(sgx_report_t) - 1,
                 (void**)&target_ptr,
                 &target_ptr_size) == OE_INVALID_PARAMETER);
         OE_TEST(
             oe_get_target_info(
                 report_buffer_ptr,
-                sizeof(oe_report_header_t) + sizeof(sgx_report_t) - 1,
+                sizeof(oe_evidence_header_t) + sizeof(sgx_report_t) - 1,
                 (void**)&target_ptr,
                 &target_ptr_size) == OE_INVALID_PARAMETER);
 
@@ -1065,7 +1066,7 @@ void test_parse_report_negative()
     OE_TEST(
         oe_parse_report(report_buffer, report_size, &parsed_report) == OE_OK);
 
-    oe_report_header_t* header = (oe_report_header_t*)report_buffer;
+    oe_evidence_header_t* header = (oe_evidence_header_t*)report_buffer;
 
     // 5. Header's version is invalid.
     header->version++;
@@ -1077,17 +1078,17 @@ void test_parse_report_negative()
         oe_parse_report(report_buffer, report_size, &parsed_report) == OE_OK);
 
     // 6. Header's report_size is invalid.
-    // ie: report_size + sizeof(oe_report_header_t) != report_size
-    header->report_size++;
+    // ie: report_size + sizeof(oe_evidence_header_t) != report_size
+    header->evidence_size++;
     OE_TEST(
         oe_parse_report(report_buffer, report_size, &parsed_report) ==
         OE_INCORRECT_REPORT_SIZE);
-    header->report_size--;
+    header->evidence_size--;
     OE_TEST(
         oe_parse_report(report_buffer, report_size, &parsed_report) == OE_OK);
 
-    // 7. Header's report_type is invalid.
-    header->report_type = (oe_report_type_t)20;
+    // 7. Header's type is invalid.
+    header->type = (oe_tee_evidence_type_t)20;
     OE_TEST(
         oe_parse_report(report_buffer, report_size, &parsed_report) ==
         OE_REPORT_PARSE_ERROR);
@@ -1105,8 +1106,8 @@ static void GetSGXTargetInfo(sgx_target_info_t* sgx_target_info)
         GetReport_v2(0, NULL, 0, NULL, 0, &report_buffer, &report_size) ==
         OE_OK);
 
-    oe_report_header_t* header = (oe_report_header_t*)report_buffer;
-    sgx_report_t* sgx_report = (sgx_report_t*)header->report;
+    oe_evidence_header_t* header = (oe_evidence_header_t*)report_buffer;
+    sgx_report_t* sgx_report = (sgx_report_t*)header->evidence;
 
     memset(sgx_target_info, 0, sizeof(*sgx_target_info));
     memcpy(

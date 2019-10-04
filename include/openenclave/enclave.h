@@ -14,6 +14,7 @@
 #error "enclave.h and host.h must not be included in the same compilation unit."
 #endif
 
+#include "attestation_plugin.h"
 #include "bits/defs.h"
 #include "bits/exception.h"
 #include "bits/fs.h"

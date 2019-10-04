@@ -136,6 +136,72 @@ typedef struct _oe_report
 } oe_report_t;
 /**< typedef struct _oe_report oe_report_t*/
 
+/*
+**==============================================================================
+**
+** oe_tee_evidence_type_t
+**
+**==============================================================================
+*/
+typedef enum _oe_tee_evidence_type_t
+{
+    OE_TEE_TYPE_SGX_LOCAL = 1,
+    OE_TEE_TYPE_SGX_REMOTE = 2,
+    OE_TEE_TYPE_CYRES_LOCAL = 3,
+    OE_TEE_TYPE_CYRES_REMOTE = 4,
+    OE_TEE_TYPE_CUSTOM = 5,
+    __OE_TEE_TYPE_MAX = OE_ENUM_MAX
+} oe_tee_evidence_type_t;
+
+#define UUID_SIZE 16
+typedef struct
+{
+    uint8_t b[UUID_SIZE];
+} uuid_t;
+
+#define UUID_INIT(a, b, c, d0, d1, d2, d3, d4, d5, d6, d7) \
+    ((uuid_t){{((a) >> 24) & 0xff,                         \
+               ((a) >> 16) & 0xff,                         \
+               ((a) >> 8) & 0xff,                          \
+               (a)&0xff,                                   \
+               ((b) >> 8) & 0xff,                          \
+               (b)&0xff,                                   \
+               ((c) >> 8) & 0xff,                          \
+               (c)&0xff,                                   \
+               (d0),                                       \
+               (d1),                                       \
+               (d2),                                       \
+               (d3),                                       \
+               (d4),                                       \
+               (d5),                                       \
+               (d6),                                       \
+               (d7)}})
+
+/*
+**==============================================================================
+**
+** oe_evidence_header_t
+**
+**==============================================================================
+*/
+typedef struct _oe_evidence_header
+{
+    uint32_t version;
+    oe_tee_evidence_type_t type; // TEE type
+    uuid_t format_id;            // uuid for specific attestation format
+    uint32_t evidence_size;      // Size not including the user data
+    uint32_t user_data_size;     // Size of user data that follows evidence
+    uint8_t evidence[];
+} oe_evidence_header_t;
+
+// name = value (a byte stream)
+typedef struct _oe_claim_element_t
+{
+    char* name;
+    size_t len;
+    uint8_t* value;
+} oe_claim_element_t;
+
 OE_EXTERNC_END
 
 #endif /* _OE_BITS_REPORT_H */
