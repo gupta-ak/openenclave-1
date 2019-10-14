@@ -15,14 +15,14 @@ blob that is signed by the enclave, and `oe_verify_report`, which can be used to
 verify the generated report. The original purpose of those two APIs were to
 provide a simple, cross-platform way to produce and verify attestation data.
 
-However, some developers need more flexibility for their
-attestation requirements. For example, one might want to extend Open Enclave's
+However, some developers need more flexibility for their attestation
+requirements. For example, one might want to extend Open Enclave's
 current attestation structures with extra information, such as geolocation
 or a timestamp. Another user might want their enclaves to generate attestation
 data that is in a compatible format with their existing authentication
 infrastructure, such as a JSON Web Token or an X.509 certificate. There are also
-users who want to specify their collaterals (information from a second source
-used for verification), instead of using the set of collaterals provided by Open
+users who want to specify their endorsements (information from a second source
+used for verification), instead of using the set of endorsements provided by Open
 Enclave.
 
 Overall, there has been interest in enhancing Open Enclave's APIs to support
@@ -31,7 +31,10 @@ custom attestation formats to enable these scenarios.
 Terminology
 -----------
 
-This document uses the following terminology defined here:
+This document uses the following terminology defined below. Note that
+these definitions are consistent with the terms defined in the
+[Remote Attestation Procedures (RATS)](https://datatracker.ietf.org/wg/rats/about/)
+working group.
 
 - Claims
   - Claims are statements about a particular subject. They consist of
@@ -41,13 +44,13 @@ This document uses the following terminology defined here:
 - Evidence
   - This is the data about the enclave that is produced and signed by it.
     The SGX report would be an example of evidence.
-- Collaterals
+- Endorsements
   - This is additional data that used in the evidence verification process,
-    but is not produced by the enclave. An example of collateral would be
-    the quoting enclave's identity, which is for SGX remote attestation and
+    but is not produced by the enclave. An example of an endorsement would be
+    the quoting enclave's identity used in SGX remote attestation, because it
     is retrieved from Intel's servers, rather than the enclave.
 - Verifier
-  - The verifier is responsible for taking in the evidence and collateral
+  - The verifier is responsible for taking in the evidence and endorsements
     and deciding if the enclave is trustworthy.
 - Relying party
   - The relying party is the entity interested in communicating with an
@@ -60,8 +63,8 @@ Specification
 
 To support custom attestation formats, this document proposes adding a plugin
 model for attestation. The Open Enclave SDK will define a set of common APIs
-that each plugin must implement. Each plugin will define a random UUID to
-distinguish it from other plugins.
+that each plugin must implement. Each plugin will define an UUID to distinguish
+it from other plugins.
 
 Futhermore, there will be additional attestation "plugin aware" APIs that are
 analogous to `oe_get_report` and `oe_verify_report`, along with functions for
@@ -72,7 +75,7 @@ desired UUID. The generated data will have the UUID in its header. The user can
 call the analogue of `oe_verify_report` to verify the data and the Open Enclave
 runtime can use this UUID to determine what plugin verification routine to run.
 
-The plug-in model also exposes a new set of functions that support collaterals.
+The plug-in model also exposes a new set of functions that support endorsements.
 
 ### Plugin API
 
@@ -147,32 +150,32 @@ struct oe_attestation_plugin_t
         uint8_t* evidence_buffer);
 
     /**
-     * Generates the attestation collateral, which is defined as the data
+     * Generates the attestation endorsements, which is defined as the data
      * produced outside of the enclave that is used part of the verification
      * process.
      *
      * @param[in] plugin_context A pointer to the attestation plugin struct.
-     * @param[out] collateral_buffer An output pointer that will be assigned the
-     * address of the collateral buffer.
-     * @param[out] collateral_buffer_size A pointer that points to the size of the
-     * collateral buffer.
+     * @param[out] endorsements_buffer An output pointer that will be assigned the
+     * address of the endorsements buffer.
+     * @param[out] endorsements_buffer_size A pointer that points to the size of the
+     * endorsements buffer.
      * @retval OE_OK on success.
      */
-    oe_result_t (*get_collaterals)(
+    oe_result_t (*get_endorsements)(
         oe_attestation_plugin_t* plugin_context,
-        uint8_t** collateral_buffer,
-        size_t* collateral_buffer_size);
+        uint8_t** endorsements_buffer,
+        size_t* endorsements_buffer_size);
 
     /**
-     * Frees the generated attestation collateral.
+     * Frees the generated attestation endorsements.
      *
      * @param[in] plugin_context A pointer to the attestation plugin struct.
-     * @param[in] collateral_buffer A pointer to the collateral buffer.
+     * @param[in] endorsements_buffer A pointer to the endorsements buffer.
      * @retval OE_OK on success.
      */
-    oe_result_t (*free_collaterals)(
+    oe_result_t (*free_endorsements)(
         oe_attestation_plugin_t* plugin_context,
-        uint8_t* collateral_buffer);
+        uint8_t* endorsements_buffer);
 
     /**
      * Verifies the attestation evidence and returns the claims contained in
@@ -181,8 +184,8 @@ struct oe_attestation_plugin_t
      * @param[in] plugin_context A pointer to the attestation plugin struct.
      * @param[in] evidence_buffer The evidence buffer.
      * @param[in] evidence_buffer_size The size of evidence_buffer in bytes.
-     * @param[in] collateral_buffer The collateral buffer.
-     * @param[in] collateral_buffer_size The size of collateral_buffer in bytes.
+     * @param[in] endorsements_buffer The endorsements buffer.
+     * @param[in] endorsements_buffer_size The size of endorsements_buffer in bytes.
      * @param[out] claims The list of claims.
      * @param[out] claims_size The size of claims.
      * @retval OE_OK on success.
@@ -191,8 +194,8 @@ struct oe_attestation_plugin_t
         oe_attestation_plugin_t* plugin_context,
         const uint8_t* evidence_buffer,
         size_t evidence_buffer_size,
-        const uint8_t* collateral_buffer,
-        size_t collateral_buffer_size,
+        const uint8_t* endorsements_buffer,
+        size_t endorsements_buffer_size,
         uint_t** claims,
         size_t* claims_size);
 };
@@ -214,12 +217,12 @@ Here is the rationale for each element in the plugin struct:
     require the enclave to sign some claim from a relying party. For example,
     many protocols follow the "challenge response" architecture, which requires
     the enclave to sign a nonce from the relying party.
-- `get_collaterals` and `free_collaterals`
-  - Producing collaterals is essential for attestation.
-  - Examples of collaterals could be firmware measurements from the device's
+- `get_endorsements` and `free_endorsements`
+  - Producing endorsements is essential for attestation.
+  - Examples of endorsements could be firmware measurements from the device's
     manufacturer or a certificate revocation list (CRL) from an X.509 certificate.
 - `verify_evidence`
-  - Verifying evidence and collaterals is essential for attestation.
+  - Verifying evidence and endorsements is essential for attestation.
   - The `claims` field contains key-value pairs that can be verified by the
     caller. This will have the similar contents as the `oe_identity_t` field
     in the `oe_report_t` struct returned by `oe_verify_report` and any custom
@@ -234,8 +237,8 @@ Here is the rationale for each element in the plugin struct:
     - `unique_id`: The unique ID for the enclave (MRENCLAVE for SGX).
     - `signer_id`: The signer ID for the enclave (MRSIGNER for SGX).
     - `product_id`: The product ID for the enclave (ISVPRODID for SGX).
-    - `validity_from`: Overall datetime from which the evidence and collaterals are valid.
-    - `validity_until`: Overall datetime at which the evidence and collaterals expire.
+    - `validity_from`: Overall datetime from which the evidence and endorsements are valid.
+    - `validity_until`: Overall datetime at which the evidence and endorsements expire.
 
 Open Issues:
 
@@ -246,14 +249,14 @@ Open Issues:
     use those claims as the `custom_claims` parameter to plugin B's
     `get_evidence` function. If the format of the claims is something like
     JSON or CBOR, then the idea of chaining claims could work.
-- Input parameters for `get_evidence`, `get_collaterals` and `verify_evidence`.
+- Input parameters for `get_evidence`, `get_endorsements` and `verify_evidence`.
   - For `get_evidence`, there could potentially be 3 types of input:
     1. Input to the function itself.
     2. Custom claims that are known to the plugin.
     3. Custom claims that are unknown to the plugin and should be treated as an opaque block.
 
     The current API proposal has no way to distinguish all 3.
-    Likewise, `get_collaterals` and `verify_evidence` could require function
+    Likewise, `get_endorsements` and `verify_evidence` could require function
     input parameters. A solution could be having a structured way to define
     these parameters using JSON or CBOR.
 
@@ -267,9 +270,9 @@ they can simply be no-ops.
 `oe_get_report` can be mapped to the `get_evidence` API and
 `oe_verify_report` can be mapped to the `verify_evidence` API.
 
-For `get_collaterals` and `free_collaterals` they will be mapped to newly
+For `get_endorsements` and `free_endorsements` they will be mapped to newly
 created internal functions that are part of the SGX plug-in.
-The current set of collaterals for SGX are:
+The current set of endorsements for SGX are:
 1. CRLs.
 2. TCB Info.
 3. QE Identity Info.
@@ -278,7 +281,7 @@ The current set of collaterals for SGX are:
 
 The functions are what the plugin user calls to use a plugin. They map almost
 exactly to the plugin API. The main difference is that
-`oe_get_attestation_evidence` and `oe_get_attestation_collaterals` require the
+`oe_get_attestation_evidence` and `oe_get_attestation_endorsements` require the
 UUID of the plugin as an input parameter.
 
 ```C
@@ -350,32 +353,32 @@ oe_result_t oe_get_attestation_evidence(
 void oe_free_attestation_evidence(uint8_t* evidence_buffer);
 
 /**
- * oe_get_attestation_collaterals
+ * oe_get_attestation_endorsements
  *
- * Generates the attestation collaterals for the given UUID attestation format. This 
+ * Generates the attestation endorsements for the given UUID attestation format. This
  * function is only available in the enclave.
  *
  * @param[in] evidence_format_uuid The UUID of the plugin.
- * @param[out] collateral_buffer An output pointer that will be assigned the
- * address of the collateral buffer.
- * @param[out] collateral_buffer_size A pointer that points to the size of the
- * collateral buffer.
+ * @param[out] endorsements_buffer An output pointer that will be assigned the
+ * address of the endorsements buffer.
+ * @param[out] endorsements_buffer_size A pointer that points to the size of the
+ * endorsements buffer.
  * @retval OE_OK The function succeeded.
  * @retval OE_NOT_FOUND The plugin does not exist.
  */
-oe_result_t oe_get_attestation_collaterals(
+oe_result_t oe_get_attestation_endorsements(
     const uuid_t* evidence_format_uuid,
-    uint8_t** collateral_buffer,
-    size_t* collateral_buffer_size);
+    uint8_t** endorsements_buffer,
+    size_t* endorsements_buffer_size);
 
 /**
- * oe_free_attestation_collateral
+ * oe_free_attestation_endorsements
  *
- * Frees the attestation collateral. This function is available only in the enclave.
+ * Frees the attestation endorsements. This function is available only in the enclave.
  *
- * @param[in] collateral_buffer A pointer to the collateral buffer.
+ * @param[in] endorsements_buffer A pointer to the endorsements buffer.
  */
-void oe_free_attestation_collateral(uint8_t* collateral_buffer);
+void oe_free_attestation_endorsements(uint8_t* endorsements_buffer);
 
 /**
  * oe_verify_attestation_evidence
@@ -385,8 +388,8 @@ void oe_free_attestation_collateral(uint8_t* collateral_buffer);
  *
  * @param[in] evidence_buffer The evidence buffer.
  * @param[in] evidence_buffer_size The size of evidence_buffer in bytes.
- * @param[in] collateral_buffer The collateral buffer.
- * @param[in] collateral_buffer_size The size of collateral_buffer in bytes.
+ * @param[in] endorsements_buffer The endorsements buffer.
+ * @param[in] endorsements_buffer_size The size of endorsements_buffer in bytes.
  * @param[in] verification_params Optional input verification parameters.
  * @param[in] verification_params_size The size of verification_params in bytes.
  * @param[out] claims The list of claims.
@@ -396,15 +399,15 @@ void oe_free_attestation_collateral(uint8_t* collateral_buffer);
 oe_result_t oe_verify_attestation_evidence(
     const uint8_t* evidence_buffer,
     size_t evidence_buffer_size,
-    const uint8_t* collateral_buffer,
-    size_t collateral_buffer_size,
+    const uint8_t* endorsements_buffer,
+    size_t endorsements_buffer_size,
     const uint8_t* verification_params,
     size_t verification_params_size,
     uint_t** claims,
     size_t* claims_size);
 ```
 
-The output returned by the `oe_get_attestation_collaterals` and
+The output returned by the `oe_get_attestation_endorsements` and
 `oe_register_attestation_plugin` functions will begin with the header
 specified below. This allows `oe_verify_attestation_evidence` to
 determine what plugin verification routine to use. Note that since these
@@ -424,7 +427,7 @@ typedef struct _oe_attestation_header
     /* UUID to identify format. */
     uuid_t format_id;
 
-    /* Size of evidence/collateral sent to the plugin. */
+    /* Size of evidence/endorsements sent to the plugin. */
     uint32_t data_size;
 
     /* The actual data */
@@ -531,25 +534,25 @@ sgx_attestation_plugin_free_evidence(
 
 static 
 oe_result_t 
-sgx_attestation_plugin_get_collaterals(
+sgx_attestation_plugin_get_endorsements(
     oe_attestation_plugin_t* plugin_context,
-    uint8_t** collateral_buffer,
-    size_t* collateral_buffer_size)
+    uint8_t** endorsements_buffer,
+    size_t* endorsements_buffer_size)
 {
     OE_UNUSED(plugin_context);
 
-    return oe_get_collaterals(collateral_buffer, collateral_buffer_size);
+    return oe_get_endorsements(endorsements_buffer, endorsements_buffer_size);
 }
 
 static 
 oe_result_t 
-sgx_attestation_plugin_free_collaterals(
+sgx_attestation_plugin_free_endorsements(
     oe_attestation_plugin_t* plugin_context,
-    uint8_t* collateral_buffer)
+    uint8_t* endorsements_buffer)
 {
     OE_UNUSED(plugin_context);
 
-    return oe_free_collaterals(collateral_buffer);
+    return oe_free_endorsements(endorsements_buffer);
 }
 
 static 
@@ -558,8 +561,8 @@ sgx_attestation_plugin_verify_evidence(
     oe_attestation_plugin_t* plugin_context,
     const uint8_t* evidence_buffer,
     size_t evidence_buffer_size,
-    const uint8_t* collateral_buffer,
-    size_t collateral_buffer_size,
+    const uint8_t* endorsements_buffer,
+    size_t endorsements_buffer_size,
     const uint8_t* verification_params,
     size_t verification_params_size,
     uint_t** claims,
@@ -575,11 +578,11 @@ sgx_attestation_plugin_verify_evidence(
         input_time = &params->input_validation_time;
     }
 
-    return oe_verify_report_with_collaterals(
+    return oe_verify_report_with_endorsements(
         evidence_buffer,
         evidence_buffer_size,
-        collateral_buffer,
-        collateral_buffer_size,
+        endorsements_buffer,
+        endorsements_buffer_size,
         input_time,
         NULL // parsed_report);
 }
@@ -594,8 +597,8 @@ oe_attestation_plugin_t sgx_attestation_plugin = {
  .on_unregister = sgx_attestation_plugin_on_unregister,
  .get_evidence = sgx_attestation_plugin_get_evidence,
  .free_evidence = sgx_attestation_plugin_free_evidence,
- .get_collaterals = sgx_attestation_plugin_get_collaterals,
- .free_collaterals = sgx_attestation_plugin_free_collaterals,
+ .get_endorsements = sgx_attestation_plugin_get_endorsements,
+ .free_endorsements = sgx_attestation_plugin_free_endorsements,
  .verify_evidence = sgx_attestation_plugin_verify_evidence,
 };
 
@@ -673,18 +676,18 @@ oe_get_attestation_evidence(
     &evidence,
     &evidence_size);
 
-/* Get collaterals. */
-oe_get_attestation_collaterals(
+/* Get endorsements. */
+oe_get_attestation_endorsements(
     MY_PLUGIN_UUID,
-    &collaterals,
-    &collaterals_size);
+    &endorsements,
+    &endorsements_size);
 
 /* Verify evidence. Can check the claims if desired. */
 oe_verify_attestation_evidence(
     evidence,
     evidence_size,
-    collaterals,
-    collaterals_size,
+    endorsements,
+    endorsements_size,
     &claims,
     &claims_size);
 
@@ -699,7 +702,7 @@ The plugin user can now link in the plugin to build their app:
 gcc -o my_app use_plugin.o my_plugin.o ...
 ```
 
-### Remote attestation collaterals
+### Remote attestation endorsements
 
 There are 2 user scenarios.  Examples shows running from an enclave, running from the host should be similar.
 
@@ -724,12 +727,12 @@ result = oe_get_attestation_evidence(
 ```C
 ...
 
-// Verify report without collaterals
+// Verify report without endorsements
 result = oe_verify_attestation_evidence(
             evidence,
             evidence_size,
-            NULL, // collaterals
-            0,    // collaterals_size
+            NULL, // endorsements
+            0,    // endorsements_size
             NULL, // verification_params
             0,    // verification_params_size
             &claims,
@@ -738,9 +741,9 @@ result = oe_verify_attestation_evidence(
 
 ```
 
-#### 2. Challenger is provided with evidence and collaterals:
+#### 2. Challenger is provided with evidence and endorsements:
 
-##### Server generates the evidence and collaterals
+##### Server generates the evidence and endorsements
 ```C
 ...
 
@@ -754,23 +757,23 @@ result = oe_get_attestation_evidence(
     &evidence,
     &evidence_size);
 
-// Get collaterals
-result = oe_get_attestation_collaterals(
+// Get endorsements
+result = oe_get_attestation_endorsements(
     MY_PLUGIN_UUID,
-    &collaterals,
-    &collaterals_size);
+    &endorsements,
+    &endorsements_size);
 ```
 
-##### Challenger verifies the evidence and collaterals
+##### Challenger verifies the evidence and endorsements
 ```C
 ...
 
-// Verify evidence with collateral
+// Verify evidence with endorsements
 result = oe_verify_attestation_evidence(
             evidence,
             evidence_size,
-            collaterals,
-            collaterals_size,
+            endorsements,
+            endorsements_size,
             NULL, // verification_params
             0,    // verification_params_size
             &claims,
@@ -778,7 +781,7 @@ result = oe_verify_attestation_evidence(
 ...
 ```
 
-#### 3. Challenger is provided with evidence and uses its own collaterals:
+#### 3. Challenger is provided with evidence and uses its own endorsements:
 
 ##### Server generates the evidence
 ```C
@@ -795,24 +798,24 @@ result = oe_get_attestation_evidence(
     &evidence_size);
 ```
 
-##### Challenger verifies the evidence with its own collaterals
+##### Challenger verifies the evidence with its own endorsements
 ```C
 ...
 
 //
-// Challenger gets collaterals from an external source.
+// Challenger gets endorsements from an external source.
 //
 
 //
-// Challenger builds collateral structure
+// Challenger builds endorsements structure
 //
 
-// Verify evidence with collateral
+// Verify evidence with endorsements
 result = oe_verify_attestation_evidence(
             evidence,
             evidence_size,
-            collaterals,
-            collaterals_size,
+            endorsements,
+            endorsements_size,
             NULL, // verification_params
             0,    // verification_params_size
             &claims,
