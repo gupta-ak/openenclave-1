@@ -40,7 +40,7 @@ working group.
   - Claims are statements about a particular subject. They consist of
     name-value pairs containing the claim name, which is a string, and
     claim value, which is arbitrary data. Example of claims could be
-    [key="version", value=1] or [key="enclave_id", value=1111].
+    [name="version", value=1] or [name="enclave_id", value=1111].
 - Evidence
   - This is the data about the enclave that is produced and signed by it.
     The SGX report would be an example of evidence.
@@ -75,13 +75,21 @@ desired UUID. The generated data will have the UUID in its header. The user can
 call the analogue of `oe_verify_report` to verify the data and the Open Enclave
 runtime can use this UUID to determine what plugin verification routine to run.
 
-The plug-in model also exposes a new set of functions that support endorsements.
-
 ### Plugin API
 
 Each plugin must implement the functions below:
 
 ```C
+/**
+ * Claims struct used for claims parameters for the plugin.
+ */
+struct oe_claim_t
+{
+    char* name;
+    uint8_t* value;
+    size_t value_size;
+};
+
 /**
  * Struct that defines the structure of each plugin. Each plugin must
  * define an UUID for its format and implement the functions in this
@@ -123,20 +131,30 @@ struct oe_attestation_plugin_t
      * must be attached to the evidence and then cryptographically signed.
      *
      * @param[in] plugin_context A pointer to the attestation plugin struct.
-     * @param[in] custom_claims A buffer to the optional custom claims.
-     * @param[in] custom_claims_size The size in bytes of custom_claims.
+     * @param[in] input_params The optional plugin-specific input parameters.
+     * @param[in] input_params_size The size of input_params.
+     * @param[in] custom_claims The optional custom claims list.
+     * @param[in] custom_claims_length The number of custom claims.
      * @param[out] evidence_buffer An output pointer that will be assigned the
      * address of the evidence buffer.
      * @param[out] evidence_buffer_size A pointer that points to the size of the
      * evidence buffer.
+     * @param[out] endorsements_buffer An output pointer that will be assigned the
+     * address of the endorsements buffer.
+     * @param[out] endorsements_buffer_size A pointer that points to the size of the
+     * endorsements buffer.
      * @retval OE_OK on success.
      */
     oe_result_t (*get_evidence)(
         oe_attestation_plugin_t* plugin_context,
-        const uint8_t* custom_claims,
-        size_t custom_claims_size,
+        const void* input_params,
+        size_t input_params_size,
+        const oe_claim_t* custom_claims,
+        size_t custom_claims_length,
         uint8_t** evidence_buffer,
-        size_t* evidence_buffer_size);
+        size_t* evidence_buffer_size,
+        uint8_t** endorsements_buffer,
+        size_t* endorsements_buffer_size);
 
     /**
      * Frees the generated attestation evidence.
@@ -148,23 +166,6 @@ struct oe_attestation_plugin_t
     oe_result_t (*free_evidence)(
         oe_attestation_plugin_t* plugin_context,
         uint8_t* evidence_buffer);
-
-    /**
-     * Generates the attestation endorsements, which is defined as the data
-     * produced outside of the enclave that is used part of the verification
-     * process.
-     *
-     * @param[in] plugin_context A pointer to the attestation plugin struct.
-     * @param[out] endorsements_buffer An output pointer that will be assigned the
-     * address of the endorsements buffer.
-     * @param[out] endorsements_buffer_size A pointer that points to the size of the
-     * endorsements buffer.
-     * @retval OE_OK on success.
-     */
-    oe_result_t (*get_endorsements)(
-        oe_attestation_plugin_t* plugin_context,
-        uint8_t** endorsements_buffer,
-        size_t* endorsements_buffer_size);
 
     /**
      * Frees the generated attestation endorsements.
@@ -186,8 +187,11 @@ struct oe_attestation_plugin_t
      * @param[in] evidence_buffer_size The size of evidence_buffer in bytes.
      * @param[in] endorsements_buffer The endorsements buffer.
      * @param[in] endorsements_buffer_size The size of endorsements_buffer in bytes.
+     * @param[in] input_validation_time Optional datetime to use when verifying
+     * evidence. If not specified, it will use the creation_datetime of the
+     * endorsements (if any endorsements are provided).
      * @param[out] claims The list of claims.
-     * @param[out] claims_size The size of claims.
+     * @param[out] claims_length The number of claims.
      * @retval OE_OK on success.
      */
     oe_result_t (*verify_evidence)(
@@ -196,8 +200,9 @@ struct oe_attestation_plugin_t
         size_t evidence_buffer_size,
         const uint8_t* endorsements_buffer,
         size_t endorsements_buffer_size,
-        uint_t** claims,
-        size_t* claims_size);
+        const oe_datetime_t* input_validation_time,
+        oe_claim_t** claims,
+        size_t* claims_length);
 };
 ```
 
@@ -211,78 +216,215 @@ Here is the rationale for each element in the plugin struct:
     might require configuration, which is why there is a `config_data`
     parameter. The configuration data can be plugin specific, so no format is
     specified in this proposal.
-- `get_evidence` and `free_evidence`
-  - Producing evidence is necessary for attestation.
+- `get_evidence`, `free_evidence`, and `free_endorsements`
+  - Producing evidence and endorsements is necessary for attestation.
+  - There an `input_params` field because some plugins might require plugin
+    specific input. For example, the SGX local attestation needs the
+    other enclave's target info struct.
   - There is a `custom_claims` parameter because many attestation protocols
     require the enclave to sign some claim from a relying party. For example,
     many protocols follow the "challenge response" architecture, which requires
     the enclave to sign a nonce from the relying party.
-- `get_endorsements` and `free_endorsements`
-  - Producing endorsements is essential for attestation.
-  - Examples of endorsements could be firmware measurements from the device's
-    manufacturer or a certificate revocation list (CRL) from an X.509 certificate.
+  - There is an `endorsements` parameters to return the endorsements that are
+    coupled with the evidence to ensure that the evidence and endorsements are
+    in sync.
 - `verify_evidence`
   - Verifying evidence and endorsements is essential for attestation.
   - The `claims` field contains key-value pairs that can be verified by the
     caller. This will have the similar contents as the `oe_identity_t` field
     in the `oe_report_t` struct returned by `oe_verify_report` and any custom
     claims that were passed to the `get_evidence` function.
-  - Should at minimum have the following claims (based of `oe_identity_t`):
-    - `id_version`: Version of the OE claims. Must be 0.
-    - `security_version`: Security version of the enclave. (ISVN for SGX).
-    - `attributes`: Values of the attributes flags for the enclave:
-      - `OE_REPORT_ATTRIBUTES_DEBUG`: The report is for a debug enclave.
-      - `OE_REPORT_ATTRIBUTES_REMOTE`: The report can be used for remote
-        attestation.
-    - `unique_id`: The unique ID for the enclave (MRENCLAVE for SGX).
-    - `signer_id`: The signer ID for the enclave (MRSIGNER for SGX).
-    - `product_id`: The product ID for the enclave (ISVPRODID for SGX).
-    - `validity_from`: Overall datetime from which the evidence and endorsements are valid.
-    - `validity_until`: Overall datetime at which the evidence and endorsements expire.
+  - The `input_validation_time` is needed to validate the evidence against a
+    specific time.
 
-Open Issues:
+###  Known Open Enclave Claims
 
-- Format of claims.
-  - The format should be independent of the plugin. It also should be easy
-    to extract the claims to chain plugins. For example, an app might use
-    plugin A to verify evidence A and extract the claims. Then, it might
-    use those claims as the `custom_claims` parameter to plugin B's
-    `get_evidence` function. If the format of the claims is something like
-    JSON or CBOR, then the idea of chaining claims could work.
-- Input parameters for `get_evidence`, `get_endorsements` and `verify_evidence`.
-  - For `get_evidence`, there could potentially be 3 types of input:
-    1. Input to the function itself.
-    2. Custom claims that are known to the plugin.
-    3. Custom claims that are unknown to the plugin and should be treated as an opaque block.
-
-    The current API proposal has no way to distinguish all 3.
-    Likewise, `get_endorsements` and `verify_evidence` could require function
-    input parameters. A solution could be having a structured way to define
-    these parameters using JSON or CBOR.
+- Each plugin's `verify_evidence` function must, at minimum, return the
+  following claims (mapped from the `oe_identity_t`):
+  
+| Claim Name       | Claim Value Type   | Description                                                          |
+|:-----------------|:-------------------|:---------------------------------------------------------------------|
+| id_version       | uint32_t           | Claims version. Must be 0                                            |
+| security_version | uint32_t           | Security version of the enclave. (ISVN for SGX).                     |
+| attributes       | uint64_t           | Attributes flags for the evidence: <br/> `OE_REPORT_ATTRIBUTES_DEBUG`: The evidence is for a debug enclave.<br/> `OE_REPORT_ATTRIBUTES_REMOTE`: The evidence can be used for remote attestation.   |
+| unique_id        | uint8_t[32]        | The unique ID for the enclave (MRENCLAVE for SGX).                   |
+| signer_id        | uint8_t[32]        | The signer ID for the enclave (MRSIGNER for SGX).                    |
+| product_id       | uint8_t[32]        | The product ID for the enclave (ISVPRODID for SGX).                  |
+| validity_from    | oe_datetime_t      | Overall datetime from which the evidence and endorsements are valid. |
+| validity_until   | oe_datetime_t      | Overall datetime at which the evidence and endorsements expire.      |
 
 ### Built-in SGX Plugin
 
 The current Open Enclave attestation only works on SGX platforms, so it will
 be moved to an SGX plugin. Most of the current Open Enclave APIs can be mapped
-directly to the plugin APIs. For the `on_register` and `on_unregister`  APIs, 
-they can simply be no-ops. 
-
-`oe_get_report` can be mapped to the `get_evidence` API and
+directly to the plugin APIs. For the `on_register` and `on_unregister`  APIs,
+they can simply be no-ops. `oe_get_report` can be mapped to the `get_evidence` API and
 `oe_verify_report` can be mapped to the `verify_evidence` API.
 
-For `get_endorsements` and `free_endorsements` they will be mapped to newly
-created internal functions that are part of the SGX plug-in.
-The current set of endorsements for SGX are:
-1. CRLs.
-2. TCB Info.
-3. QE Identity Info.
+### SGX Plug-In Definitions
+
+`sgx_attestation_plugin.h`
+```C
+
+/* Define the uuid. */
+#define SGX_PLUGIN_UUID                 \
+{                                       \
+ 0x2f, 0x50, 0xdc, 0xb4,                \
+ 0x79, 0x9c,                            \
+ 0x45, 0x07,                            \
+ 0xa1, 0xe9,                            \
+ 0x86, 0x2c, 0x62, 0x9b, 0x76, 0x2a}    \
+}
+
+/*! sgx_attestation_plugin
+ * 
+ * Return the SGX attesation plug-in.
+ */
+oe_attestation_plugin_t* sgx_attestation_plugin();
+
+```
+
+`sgx_attestation_plugin.c`
+```C
+#include "sgx_attestation_plugin.h"
+
+/* Struct containing params for oe report functions. */
+struct sgx_params_t {
+    uint32_t flags;
+    void* target_info;
+    size_t target_info_size;
+};
+
+static
+oe_result_t
+sgx_attestation_plugin_on_register(
+    oe_attestation_plugin_t* plugin_context,
+    const void* config_data,
+    size_t config_data_size)
+{
+    OE_UNUSED(plugin_context);
+    OE_UNUSED(config_data);
+    OE_UNUSED(config_data_size);
+
+    // Nothing to do
+    return OE_OK;
+}
+
+static 
+oe_result_t 
+sgx_attestation_plugin_on_unregister(
+    oe_attestation_plugin_t* plugin_context)
+{
+    OE_UNUSED(plugin_context);
+
+    // Nothing to do
+    return OE_OK;
+}
+
+static 
+oe_result_t 
+sgx_attestation_plugin_get_evidence(
+    oe_attestation_plugin_t* plugin_context,
+    const void* input_params,
+    size_t input_params_size,
+    const oe_claim_t* custom_claims,
+    size_t custom_claims_length,
+    uint8_t** evidence_buffer,
+    size_t* evidence_buffer_size,
+    uint8_t** endorsements_buffer,
+    size_t* endorsements_buffer_size)
+{
+    OE_UNUSED(plugin_context);
+
+    /*
+     * Pseudocode description instead of actual C code:
+     * 
+     * Cast input_params to sgx_params_t struct.
+     * Hash custom claims field.
+     * Call oe_get_report with sgx_params_t struct filling in the flags and opt_param parameters.
+     * and the hash filling in the report data parameter.
+     * Report contains the endorsements, so extract them out.
+     * Evidence will be report + custom_claims blob.
+     */
+
+    return OE_OK;
+}
+
+static 
+oe_result_t 
+sgx_attestation_plugin_free_evidence(
+    oe_attestation_plugin_t* plugin_context,
+    uint8_t* evidence_buffer)
+{
+    OE_UNUSED(plugin_context);
+
+    return oe_free_report(evidence_buffer);
+}
+
+static 
+oe_result_t 
+sgx_attestation_plugin_free_endorsements(
+    oe_attestation_plugin_t* plugin_context,
+    uint8_t* endorsements_buffer)
+{
+    OE_UNUSED(plugin_context);
+
+    return oe_free_endorsements(endorsements_buffer);
+}
+
+static 
+oe_result_t 
+sgx_attestation_plugin_verify_evidence(
+    oe_attestation_plugin_t* plugin_context,
+    const uint8_t* evidence_buffer,
+    size_t evidence_buffer_size,
+    const uint8_t* endorsements_buffer,
+    size_t endorsements_buffer_size,
+    const uint8_t* verification_params,
+    size_t verification_params_size,
+    uint_t** claims,
+    size_t* claims_size)
+{
+    OE_UNUSED(plugin_context);
+
+    /*
+     * Pseudocode description instead of actual C code:
+     *
+     * Call oe_verify_report will all the input parameters and get the oe_identity_t back.
+     * Look for the custom claims in the evidence header and extract them if found.
+     * Verify the hash of custom claims == report data field in evidence report.
+     * Convert oe_identity_t to the claims format.
+     */
+
+    return OE_OK;
+}
+
+/* Setting up the plugin struct. */
+oe_attestation_plugin_t sgx_attestation_plugin = {
+
+ /* Plugin UUID. */
+ .format_id = SGX_PLUGIN_UUID,
+
+ .on_register = sgx_attestation_plugin_on_register,
+ .on_unregister = sgx_attestation_plugin_on_unregister,
+ .get_evidence = sgx_attestation_plugin_get_evidence,
+ .free_evidence = sgx_attestation_plugin_free_evidence,
+ .free_endorsements = sgx_attestation_plugin_free_endorsements,
+ .verify_evidence = sgx_attestation_plugin_verify_evidence,
+};
+
+/* Implement helper initialization function. */
+oe_attestation_plugin_t* sgx_attestation_plugin() {
+    return &sgx_attestation_plugin;
+}
+
+```
 
 ### New Open Enclave APIs
 
 The functions are what the plugin user calls to use a plugin. They map almost
-exactly to the plugin API. The main difference is that
-`oe_get_attestation_evidence` and `oe_get_attestation_endorsements` require the
-UUID of the plugin as an input parameter.
+exactly to the plugin API. The main difference is that `oe_get_evidence`
+require the UUID of the plugin as an input parameter.
 
 ```C
 /**
@@ -320,45 +462,20 @@ oe_result_t oe_unregister_attestation_plugin(
     oe_attestation_plugin_t* plugin);
 
 /**
- * oe_get_attestation_evidence
+ * oe_get_evidence
  *
  * Generates the attestation evidence for the given UUID attestation format.
  * This function is only available in the enclave.
  *
  * @param[in] evidence_format_uuid The UUID of the plugin.
- * @param[in] custom_claims Optional custom claims that will be attached and
- * cryptographically tied to the plugin evidence.
- * @param[in] custom_claims_size The size in bytes of custom_claims
+ * @param[in] input_params The optional plugin-specific input parameters.
+ * @param[in] input_params_size The size of input_params.
+ * @param[in] custom_claims The optional custom claims list.
+ * @param[in] custom_claims_length The number of custom claims.
  * @param[out] evidence_buffer An output pointer that will be assigned the
  * address of the evidence buffer.
  * @param[out] evidence_buffer_size A pointer that points to the size of the
  * evidence buffer.
- * @retval OE_OK The function succeeded.
- * @retval OE_NOT_FOUND The plugin does not exist.
- */
-oe_result_t oe_get_attestation_evidence(
-    const uuid_t* evidence_format_uuid,
-    const uint8_t* custom_claims,
-    size_t custom_claims_size,
-    uint8_t** evidence_buffer,
-    size_t* evidence_buffer_size);
-
-/**
- * oe_free_attestation_evidence
- *
- * Frees the attestation evidence. This function is only available in the enclave.
- *
- * @param[in] evidence_buffer A pointer to the evidence buffer.
- */
-void oe_free_attestation_evidence(uint8_t* evidence_buffer);
-
-/**
- * oe_get_attestation_endorsements
- *
- * Generates the attestation endorsements for the given UUID attestation format. This
- * function is only available in the enclave.
- *
- * @param[in] evidence_format_uuid The UUID of the plugin.
  * @param[out] endorsements_buffer An output pointer that will be assigned the
  * address of the endorsements buffer.
  * @param[out] endorsements_buffer_size A pointer that points to the size of the
@@ -366,22 +483,39 @@ void oe_free_attestation_evidence(uint8_t* evidence_buffer);
  * @retval OE_OK The function succeeded.
  * @retval OE_NOT_FOUND The plugin does not exist.
  */
-oe_result_t oe_get_attestation_endorsements(
+oe_result_t oe_get_evidence(
     const uuid_t* evidence_format_uuid,
+    const void* input_params,
+    size_t input_params_size,
+    const oe_claim_t* custom_claims,
+    size_t custom_claims_length,
+    uint8_t** evidence_buffer,
+    size_t* evidence_buffer_size,
     uint8_t** endorsements_buffer,
     size_t* endorsements_buffer_size);
 
 /**
- * oe_free_attestation_endorsements
+ * oe_free_evidence
  *
- * Frees the attestation endorsements. This function is available only in the enclave.
+ * Frees the attestation evidence. This function is only available in the enclave.
  *
- * @param[in] endorsements_buffer A pointer to the endorsements buffer.
+ * @param[in] evidence_buffer A pointer to the evidence buffer.
+ * @retval OE_OK on success.
  */
-void oe_free_attestation_endorsements(uint8_t* endorsements_buffer);
+oe_result_t oe_free_evidence(uint8_t* evidence_buffer);
 
 /**
- * oe_verify_attestation_evidence
+ * oe_free_endorsements
+ * 
+ * Frees the generated attestation endorsements. This function is only available in the enclave.
+ *
+ * @param[in] endorsements_buffer A pointer to the endorsements buffer.
+ * @retval OE_OK on success.
+ */
+oe_result_t oe_free_endorsements(uint8_t* endorsements_buffer);
+
+/**
+ * oe_verify_evidence
  *
  * Verifies the attestation evidence and returns well known and custom claims.
  * This is available in the enclave and host.
@@ -390,33 +524,32 @@ void oe_free_attestation_endorsements(uint8_t* endorsements_buffer);
  * @param[in] evidence_buffer_size The size of evidence_buffer in bytes.
  * @param[in] endorsements_buffer The endorsements buffer.
  * @param[in] endorsements_buffer_size The size of endorsements_buffer in bytes.
- * @param[in] verification_params Optional input verification parameters.
- * @param[in] verification_params_size The size of verification_params in bytes.
+ * @param[in] input_validation_time Optional datetime to use when verifying
+ * evidence. If not specified, it will use the creation_datetime of the
+ * endorsements (if any endorsements are provided).
  * @param[out] claims The list of claims.
- * @param[out] claims_size The size of claims.
+ * @param[out] claims_length The length of the claims list.
  * @retval OE_OK on success.
  */
-oe_result_t oe_verify_attestation_evidence(
+oe_result_t oe_verify_evidence(
     const uint8_t* evidence_buffer,
     size_t evidence_buffer_size,
     const uint8_t* endorsements_buffer,
     size_t endorsements_buffer_size,
-    const uint8_t* verification_params,
-    size_t verification_params_size,
-    uint_t** claims,
-    size_t* claims_size);
+    const oe_datetime_t* input_validation_time,
+    oe_claim_t** claims,
+    size_t* claims_length);
 ```
 
-The output returned by the `oe_get_attestation_endorsements` and
-`oe_register_attestation_plugin` functions will begin with the header
-specified below. This allows `oe_verify_attestation_evidence` to
-determine what plugin verification routine to use. Note that since these
-functions return opaque structures, these headers are internal and not visible
-to the SDK consumers or the plugin writers.
+The outputs returned by `oe_get_endorsements` will begin with the header
+specified below. This allows `oe_verify_evidence` to determine what plugin
+verification routine to use. Note that since these functions return opaque
+structures, these headers are internal and not visible to the SDK consumers
+or the plugin writers.
 
 ```C
 /*
- * Header will be sent to oe_verify_attestation_evidence but not to the
+ * Header will be sent to oe_verify_evidence but not to the
  * plugin verification routines.
  */
 typedef struct _oe_attestation_header
@@ -441,173 +574,9 @@ typedef struct _oe_attestation_header
 The new APIs should support verifying the old Open Enclave reports
 generated by `oe_get_report`. The `oe_attestation_header_t` structure
 shares the same 1st field (`uint32_t version`) as the old Open Enclave
-report header. Consequently, the `oe_verify_attestation_evidence` can use this
+report header. Consequently, the `oe_verify_evidence` can use this
 information to decide if it needs to call a plugin or run the legacy
 verification routine (which is technically the same logic as the SGX plugin).
-
-### SGX Plug-In Definitions
-
-`sgx_attestation_plugin.h`
-```C
-
-/* Define the uuid. */
-#define SGX_PLUGIN_UUID                 \
-{                                       \
- 0x2f, 0x50, 0xdc, 0xb4,                \
- 0x79, 0x9c,                            \
- 0x45, 0x07,                            \
- 0xa1, 0xe9,                            \
- 0x86, 0x2c, 0x62, 0x9b, 0x76, 0x2a}    \
-}
-
-/*! sgx_attestation_plugin
- * 
- * Return the SGX attesation plug-in.
- */
-oe_attestation_plugin_t sgx_attestation_plugin();
-
-```
-
-`sgx_attestation_plugin.c`
-```C
-#include "sgx_attestation_plugin.h"
-
-static 
-oe_result_t 
-sgx_attestation_plugin_on_register(
-    oe_attestation_plugin_t* plugin_context,
-    const void* config_data,
-    size_t config_data_size)
-{
-    OE_UNUSED(plugin_context);
-    OE_UNUSED(config_data);
-    OE_UNUSED(config_data_size);
-
-    // Nothing to do
-}
-
-static 
-oe_result_t 
-sgx_attestation_plugin_on_unregister(
-    oe_attestation_plugin_t* plugin_context)
-{
-    OE_UNUSED(plugin_context);
-
-    // Nothing to do
-}
-
-static 
-oe_result_t 
-sgx_attestation_plugin_get_evidence(
-    oe_attestation_plugin_t* plugin_context,
-    const uint8_t* custom_claims,
-    size_t custom_claims_size,
-    uint8_t** evidence_buffer,
-    size_t* evidence_buffer_size)
-{
-    OE_UNUSED(plugin_context);
-    OE_UNUSED(custom_claims);
-    OE_UNUSED(custom_claims_size);
-
-    oe_result_t result = oe_verify_report(
-        OE_REPORT_FLAGS_REMOTE_ATTESTATION,
-        NULL,       // report_data
-        0,
-        NULL,       // opt_params
-        0,
-        evidence_buffer,
-        evidence_buffer_size);
-    
-    return result;
-}
-
-static 
-oe_result_t 
-sgx_attestation_plugin_free_evidence(
-    oe_attestation_plugin_t* plugin_context,
-    uint8_t* evidence_buffer)
-{
-    OE_UNUSED(plugin_context);
-
-    return oe_free_report(evidence_buffer);
-}
-
-static 
-oe_result_t 
-sgx_attestation_plugin_get_endorsements(
-    oe_attestation_plugin_t* plugin_context,
-    uint8_t** endorsements_buffer,
-    size_t* endorsements_buffer_size)
-{
-    OE_UNUSED(plugin_context);
-
-    return oe_get_endorsements(endorsements_buffer, endorsements_buffer_size);
-}
-
-static 
-oe_result_t 
-sgx_attestation_plugin_free_endorsements(
-    oe_attestation_plugin_t* plugin_context,
-    uint8_t* endorsements_buffer)
-{
-    OE_UNUSED(plugin_context);
-
-    return oe_free_endorsements(endorsements_buffer);
-}
-
-static 
-oe_result_t 
-sgx_attestation_plugin_verify_evidence(
-    oe_attestation_plugin_t* plugin_context,
-    const uint8_t* evidence_buffer,
-    size_t evidence_buffer_size,
-    const uint8_t* endorsements_buffer,
-    size_t endorsements_buffer_size,
-    const uint8_t* verification_params,
-    size_t verification_params_size,
-    uint_t** claims,
-    size_t* claims_size)
-{
-    OE_UNUSED(plugin_context);
-
-    oe_datetime_t* input_time = NULL;
-    if (verification_params != NULL)
-    {
-        sgx_attestation_plugin_verification_params* params =
-            (sgx_attestation_plugin_verification_params*)verification_params;
-        input_time = &params->input_validation_time;
-    }
-
-    return oe_verify_report_with_endorsements(
-        evidence_buffer,
-        evidence_buffer_size,
-        endorsements_buffer,
-        endorsements_buffer_size,
-        input_time,
-        NULL // parsed_report);
-}
-
-/* Setting up the plugin struct. */
-oe_attestation_plugin_t sgx_attestation_plugin = {
-
- /* Plugin UUID. */
- .format_id = SGX_PLUGIN_UUID,
-
- .on_register = sgx_attestation_plugin_on_register,
- .on_unregister = sgx_attestation_plugin_on_unregister,
- .get_evidence = sgx_attestation_plugin_get_evidence,
- .free_evidence = sgx_attestation_plugin_free_evidence,
- .get_endorsements = sgx_attestation_plugin_get_endorsements,
- .free_endorsements = sgx_attestation_plugin_free_endorsements,
- .verify_evidence = sgx_attestation_plugin_verify_evidence,
-};
-
-/* Implement helper initialization function. */
-oe_attestation_plugin_t sgx_attestation_plugin() {
-    return &sgx_attestation_plugin;
-}
-
-```
 
 User Experience
 ---------------
@@ -621,6 +590,7 @@ consumers to register the plugin as shown below:
 
 `my_plugin.h`
 ```C
+/* Helper function to create the plugin. */
 oe_attestation_plugin_t* my_plugin();
 
 /* Define the uuid. */
@@ -632,12 +602,32 @@ oe_attestation_plugin_t* my_plugin();
  0x86, 0x63,                            \
  0x42, 0x1e, 0x3a, 0x57, 0xa0, 0xa4}    \
 }
+
+/* Example struct used for config data for my_plugin->on_register. */
+struct my_plugin_config_data_t { ... };
+
+/* Example struct used as input parameters for my_plugin->get_evidence. */
+struct my_plugin_input_params_t { ... };
 ```
 
 `my_plugin.c`
 ```C
 /* Plugin implementation functions here. */
-static oe_result_t my_plugin_on_register(...) {...}
+static oe_result_t my_plugin_on_register(
+    oe_attestation_plugin_t* context,
+    const void* config_data,
+    size_t config_data_size)
+{
+    struct my_plugin_config_data_t* my_data = (struct my_plugin_config_data_t*) config_data;
+    /* Do meaningful work with my_data here. */
+    return OE_OK;
+}
+
+static oe_result_t my_plugin_on_unregister(...) { ... }
+static oe_result_t my_plugin_get_evidence(...) { ... }
+static oe_result_t my_plugin_free_evidence(...) { ... }
+static oe_result_t my_plugin_free_endorsements(...) { ... }
+static oe_result_t my_plugin_verify_evidence(...) { ... }
 
 /* Setting up the plugin struct. */
 oe_attestation_plugin_t my_plugin = {
@@ -646,7 +636,10 @@ oe_attestation_plugin_t my_plugin = {
 
   /* Plugin functions. */
  .on_register = my_plugin_on_register,
-  /* Rest of the plugin functions. */
+ .on_unregister = my_plugin_on_unregister,
+ .free_evidence = my_plugin_free_evidence,
+ .free_endorsements = my_plugin_free_endorsements,
+ .verify_evidence = my_plugin_verify_evidence
 };
 
 /* Implement helper initialization function. */
@@ -659,28 +652,63 @@ They can then compile their code in the standard way for building Open Enclave
 enclave and host applications.
 
 Plugin consumers will use the new "plugin aware" APIs like
-`oe_get_attestation_evidence`. Plugin consumers will use the APIs like this:
+`oe_get_attestation_evidence`. The enclave can generate the evidence
+using the plugin like this:
 
-use_plugin.c
+enclave.c
 ```C
-#include <my_plugin.h> // For my_plugin() helper function and UUID.
+#include <my_plugin.h>
 
 /* Register plugin. Send the config data if necessary. */
-oe_register_plugin(my_plugin(), my_config_data, my_config_data_size);
+struct my_config_data_t config = { ... };
+size_t config_size = sizeof(config);
+oe_register_plugin(my_plugin(), &config, config_size);
+
+/* Create input params struct if needed. */
+struct my_plugin_input_params_t params = { ... };
+size_t params_size = sizeof(params);
+
+/* Create claims if desired. */
+oe_claim_t claims = { ... };
+size_t claims_size = ...;
 
 /* Get evidence. */
 oe_get_attestation_evidence(
     MY_PLUGIN_UUID,
+    &params,
+    params_size,
     my_custom_claims,
     my_custom_claims_size,
     &evidence,
-    &evidence_size);
-
-/* Get endorsements. */
-oe_get_attestation_endorsements(
-    MY_PLUGIN_UUID,
+    &evidence_size,
     &endorsements,
     &endorsements_size);
+
+/* Send the evidence to the verifier. Protocol is up to enclave and verifier. */
+send(VERIFIER_SOCKET_FD, evidence, evidence_size, 0);
+send(VERIFIER_SOCKET_FD, endorsements, endorsements_size, 0);
+
+/* Unregister plugin. */
+oe_unregister_plugin(my_plugin());
+```
+
+The verifier, which can either be the enclave or the host, can verify the evidence like this:
+
+verifier.c
+```C
+#include <my_plugin.h>
+
+/* Register plugin. Send the config data if necessary. */
+struct my_config_data_t config = { ... };
+size_t config_size = sizeof(config);
+oe_register_plugin(my_plugin(), &config, config_size);
+
+/* Receive evidence and endorsement buffer from enclave. */
+recv(ENCLAVE_SOCKET_FD, evidence, evidence_size, 0);
+recv(ENCLAVE_SOCKET_FD, endorsements, endorsements_size, 0);
+
+/* Set input validation time if desired. */
+oe_datetime_t input_validation_time = { ... };
 
 /* Verify evidence. Can check the claims if desired. */
 oe_verify_attestation_evidence(
@@ -688,139 +716,15 @@ oe_verify_attestation_evidence(
     evidence_size,
     endorsements,
     endorsements_size,
+    &input_validation_time,
     &claims,
     &claims_size);
-
-/* Unregister plugin. */
-oe_unregister_plugin(my_plugin());
-
 ```
 
-The plugin user can now link in the plugin to build their app:
+In either case, the plugin user can link in the plugin to build their app:
 
 ```bash
-gcc -o my_app use_plugin.o my_plugin.o ...
-```
-
-### Remote attestation endorsements
-
-There are 2 user scenarios.  Examples shows running from an enclave, running from the host should be similar.
-
-#### 1. Challenger is only provided evidence.
-
-##### Server generates the evidence
-```C
-...
-
-// Get evidence
-result = oe_get_attestation_evidence(
-    MY_PLUGIN_UUID,
-    NULL, // custom_claims
-    0,
-    NULL, // opt_params
-    0,
-    &evidence,
-    &evidence_size);
-```
-
-##### Challenger verifies the evidence
-```C
-...
-
-// Verify report without endorsements
-result = oe_verify_attestation_evidence(
-            evidence,
-            evidence_size,
-            NULL, // endorsements
-            0,    // endorsements_size
-            NULL, // verification_params
-            0,    // verification_params_size
-            &claims,
-            &claims_size);
-...
-
-```
-
-#### 2. Challenger is provided with evidence and endorsements:
-
-##### Server generates the evidence and endorsements
-```C
-...
-
-// Get evidence
-result = oe_get_attestation_evidence(
-    MY_PLUGIN_UUID,
-    NULL, // custom_claims
-    0,
-    NULL, // opt_params
-    0,
-    &evidence,
-    &evidence_size);
-
-// Get endorsements
-result = oe_get_attestation_endorsements(
-    MY_PLUGIN_UUID,
-    &endorsements,
-    &endorsements_size);
-```
-
-##### Challenger verifies the evidence and endorsements
-```C
-...
-
-// Verify evidence with endorsements
-result = oe_verify_attestation_evidence(
-            evidence,
-            evidence_size,
-            endorsements,
-            endorsements_size,
-            NULL, // verification_params
-            0,    // verification_params_size
-            &claims,
-            &claims_size);
-...
-```
-
-#### 3. Challenger is provided with evidence and uses its own endorsements:
-
-##### Server generates the evidence
-```C
-...
-
-// Get evidence
-result = oe_get_attestation_evidence(
-    MY_PLUGIN_UUID,
-    NULL, // custom_claims
-    0,
-    NULL, // opt_params
-    0,
-    &evidence,
-    &evidence_size);
-```
-
-##### Challenger verifies the evidence with its own endorsements
-```C
-...
-
-//
-// Challenger gets endorsements from an external source.
-//
-
-//
-// Challenger builds endorsements structure
-//
-
-// Verify evidence with endorsements
-result = oe_verify_attestation_evidence(
-            evidence,
-            evidence_size,
-            endorsements,
-            endorsements_size,
-            NULL, // verification_params
-            0,    // verification_params_size
-            &claims,
-            &claims_size);
-...
+gcc -o my_app [enclave.o | verifier.o] my_plugin.o ...
 ```
 
 Alternates
