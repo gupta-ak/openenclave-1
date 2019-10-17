@@ -51,53 +51,35 @@ typedef struct _oe_get_qe_identity_info_args
 /*
 **==============================================================================
 **
-** oe_collaterals_header_t
+** oe_report_type_t
 **
 **==============================================================================
 */
-typedef struct _oe_collaterals_header
+typedef enum _oe_report_type
 {
-    /** Size of the collaterals */
-    uint32_t collaterals_size;
-
-    /** Collaterals data **/
-    uint8_t collaterals[];
-
-} oe_collaterals_header_t;
-
-OE_STATIC_ASSERT(sizeof(oe_collaterals_header_t) == 4);
+    OE_REPORT_TYPE_SGX_LOCAL = 1,
+    OE_REPORT_TYPE_SGX_REMOTE = 2,
+    __OE_REPORT_TYPE_MAX = OE_ENUM_MAX
+} oe_report_type_t;
 
 /*
 **==============================================================================
 **
-** oe_collaterals_t
-**
-** Structure with the collateral contents.  The collaterals are used during
-** the verification of the oe_report_t.
+** oe_report_header_t
 **
 **==============================================================================
 */
-typedef struct _oe_collaterals
+typedef struct _oe_report_header
 {
-    oe_get_qe_identity_info_args_t qe_id_info;
-    oe_get_revocation_info_args_t revocation_info;
+    uint32_t version;
+    oe_report_type_t report_type;
+    uint64_t report_size;
+    uint8_t report[];
+} oe_report_header_t;
 
-    /* Time the collaterals were generated */
-    char creation_datetime[24];
-
-    uint64_t app_collaterals_size;
-    uint8_t app_collaterals[];
-
-} oe_collaterals_t;
-
+OE_STATIC_ASSERT(sizeof(oe_report_header_t) == 16);
 OE_STATIC_ASSERT(
-    OE_OFFSETOF(oe_collaterals_header_t, collaterals) ==
-    sizeof(oe_collaterals_header_t));
-
-#define OE_COLLATERALS_HEADER_SIZE (sizeof(oe_collaterals_header_t))
-#define OE_COLLATERALS_BODY_SIZE (sizeof(oe_collaterals_t))
-#define OE_COLLATERALS_SIZE \
-    (OE_COLLATERALS_HEADER_SIZE + OE_COLLATERALS_BODY_SIZE)
+    OE_OFFSETOF(oe_report_header_t, report) == sizeof(oe_report_header_t));
 
 // ISO(1).ANSI(2).USA(840).Microsoft(113556).ACC(10).Classes(1).Subclass(1)
 #define X509_OID_FOR_QUOTE_EXT                               \

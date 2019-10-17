@@ -13,6 +13,8 @@
 oe_result_t oe_verify_remote_report(
     const uint8_t* report,
     size_t report_size,
+    const uint8_t* endorsement,
+    size_t endorsement_size,
     oe_report_t* parsed_report)
 {
     oe_result_t result = OE_UNEXPECTED;
@@ -36,7 +38,7 @@ oe_result_t oe_verify_remote_report(
         OE_RAISE(OE_UNSUPPORTED);
 
     // Quote attestation can be done entirely on the host side.
-    OE_CHECK(oe_verify_quote_internal_with_collaterals(
+    OE_CHECK(oe_verify_sgx_quote(
         header->evidence, header->evidence_size, NULL, 0, NULL));
 
     // Optionally return parsed report.
