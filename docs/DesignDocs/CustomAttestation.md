@@ -19,7 +19,7 @@ However, some developers need more flexibility for their attestation
 requirements. For example, one might want to extend Open Enclave's
 current attestation structures with extra information, such as geolocation
 or a timestamp. Another user might want their enclaves to generate attestation
-data that is in a compatible format with their existing authentication
+data that is in a format compatible with their existing authentication
 infrastructure, such as a JSON Web Token or an X.509 certificate. There are also
 users who want to specify their endorsements (information from a second source
 used for verification), instead of using the set of endorsements provided by Open
@@ -63,7 +63,7 @@ Specification
 
 To support custom attestation formats, this document proposes adding a plugin
 model for attestation. The Open Enclave SDK will define a set of common APIs
-that each plugin must implement. Each plugin will define an UUID to distinguish
+that each plugin must implement. Each plugin will define a UUID to distinguish
 it from other plugins.
 
 Futhermore, there will be additional attestation "plugin aware" APIs that are
@@ -96,7 +96,7 @@ struct oe_claim_t
 
 /**
  * Struct that defines the structure of each plugin. Each plugin must
- * define an UUID for its format and implement the functions in this
+ * define a UUID for its format and implement the functions in this
  * struct. Ideally, each plugin should provide a helper function to
  * create this struct on the behalf of the plugin users.
  */
@@ -141,15 +141,15 @@ struct oe_attestation_plugin_t
      * @param[in] custom_claims The optional custom claims list.
      * @param[in] custom_claims_length The number of custom claims.
      * @param[in] opt_params The optional plugin-specific input parameters.
-     * @param[in] opt_params_size The size of opt_params.
+     * @param[in] opt_params_size The size of opt_params in bytes.
      * @param[out] evidence_buffer An output pointer that will be assigned the
      * address of the evidence buffer.
      * @param[out] evidence_buffer_size A pointer that points to the size of the
-     * evidence buffer.
+     * evidence buffer in bytes.
      * @param[out] endorsements_buffer An output pointer that will be assigned the
      * address of the endorsements buffer.
      * @param[out] endorsements_buffer_size A pointer that points to the size of the
-     * endorsements buffer.
+     * endorsements buffer in bytes.
      * @retval OE_OK on success.
      */
     oe_result_t (*get_evidence)(
@@ -217,7 +217,7 @@ struct oe_attestation_plugin_t
 Here is the rationale for each element in the plugin struct:
 
 - `format_id`
-  - Each plugin needs an unique identifier to distinguish itself.
+  - Each plugin needs a unique identifier to distinguish itself.
 - `on_register` and `on_unregister`
   - A plugin might require some setup or teardown when it is registered or
     unregistered, so these functions are required. Furthermore, a plugin
@@ -228,13 +228,13 @@ Here is the rationale for each element in the plugin struct:
   - Producing evidence and endorsements is necessary for attestation.
   - `flags` field to determine local vs. remote attestation.
   - There is a `custom_claims` parameter because many attestation protocols
-    require the enclave to sign some claim from a relying party. For example,
+    require the enclave to sign some data from a relying party. For example,
     many protocols follow the "challenge response" architecture, which requires
     the enclave to sign a nonce from the relying party.
-  - There an `opt_params` field because some plugins might require plugin
+  - There is an `opt_params` field because some plugins might require plugin
     specific input. For example, the SGX local attestation needs the
     other enclave's target info struct.
-  - There is an `endorsements` parameters to return the endorsements that are
+  - There is an `endorsements` parameter to return the endorsements that are
     coupled with the evidence to ensure that the evidence and endorsements are
     in sync.
 - `verify_evidence`
@@ -392,7 +392,7 @@ sgx_attestation_plugin_verify_evidence(
     /*
      * Pseudocode description instead of actual C code:
      *
-     * Call oe_verify_report will all the input parameters and get the oe_identity_t back.
+     * Call oe_verify_report with all the input parameters and get the oe_identity_t back.
      * Look for the custom claims in the evidence header and extract them if found.
      * Verify the hash of custom claims == report data field in evidence report.
      * Convert oe_identity_t to the claims format.
@@ -426,7 +426,7 @@ oe_attestation_plugin_t* sgx_attestation_plugin() {
 
 The functions are what the plugin user calls to use a plugin. They map almost
 exactly to the plugin API. The main difference is that `oe_get_evidence`
-require the UUID of the plugin as an input parameter.
+requires the UUID of the plugin as an input parameter.
 
 ```C
 /**
@@ -438,7 +438,7 @@ require the UUID of the plugin as an input parameter.
  * 
  * This is available in the enclave and host.
  *
- * @param[in] plugin A pointer to the attestation plugin struct. Note that will
+ * @param[in] plugin A pointer to the attestation plugin struct. Note that this will
  * not copy the contents of the pointer, so the pointer must be kept valid until
  * the plugin is unregistered.
  * @param[in] config_data An optional pointer to the configuration data.
@@ -476,15 +476,15 @@ oe_result_t oe_unregister_attestation_plugin(
  * @param[in] custom_claims The optional custom claims list.
  * @param[in] custom_claims_length The number of custom claims.
  * @param[in] opt_params The optional plugin-specific input parameters.
- * @param[in] opt_params_size The size of opt_params.
+ * @param[in] opt_params_size The size of opt_params in bytes.
  * @param[out] evidence_buffer An output pointer that will be assigned the
  * address of the evidence buffer.
  * @param[out] evidence_buffer_size A pointer that points to the size of the
- * evidence buffer.
+ * evidence buffer in bytes.
  * @param[out] endorsements_buffer An output pointer that will be assigned the
  * address of the endorsements buffer.
  * @param[out] endorsements_buffer_size A pointer that points to the size of the
- * endorsements buffer.
+ * endorsements buffer in bytes.
  * @retval OE_OK The function succeeded.
  * @retval OE_NOT_FOUND The plugin does not exist.
  */
@@ -531,8 +531,8 @@ oe_result_t oe_free_endorsements(uint8_t* endorsements_buffer);
  * @param[in] endorsements_buffer The endorsements buffer.
  * @param[in] endorsements_buffer_size The size of endorsements_buffer in bytes.
  * @param[in] input_validation_time Optional datetime to use when verifying
- * evidence. If not specified, it will use the creation_datetime of the
- * endorsements (if any endorsements are provided).
+ * evidence. If null, it will use the creation_datetime of the endorsements
+ * (if any endorsements are provided).
  * @param[out] claims The list of claims.
  * @param[out] claims_length The length of the claims list.
  * @retval OE_OK on success.
@@ -577,6 +577,7 @@ typedef struct _oe_attestation_header
 ```
 
 ### Backwards compatibility
+
 The new APIs should support verifying the old Open Enclave reports
 generated by `oe_get_report`. The `oe_attestation_header_t` structure
 shares the same 1st field (`uint32_t version`) as the old Open Enclave
@@ -588,6 +589,7 @@ User Experience
 ---------------
 
 ### Plug-in
+
 There are two types of users: the plugin writers and the plugin consumers.
 
 Plugin writers will implement their plugin according to the plugin API.
@@ -595,6 +597,7 @@ They should also provide a helper function that makes it easy for plugin
 consumers to register the plugin as shown below:
 
 `my_plugin.h`
+
 ```C
 /* Helper function to create the plugin. */
 oe_attestation_plugin_t* my_plugin();
@@ -617,6 +620,7 @@ struct my_plugin_opt_params_t { ... };
 ```
 
 `my_plugin.c`
+
 ```C
 /* Plugin implementation functions here. */
 static oe_result_t my_plugin_on_register(
@@ -662,6 +666,7 @@ Plugin consumers will use the new "plugin aware" APIs like
 using the plugin like this:
 
 enclave.c
+
 ```C
 #include <my_plugin.h>
 
@@ -702,6 +707,7 @@ oe_unregister_plugin(my_plugin());
 The verifier, which can either be the enclave or the host, can verify the evidence like this:
 
 verifier.c
+
 ```C
 #include <my_plugin.h>
 
@@ -734,7 +740,7 @@ In either case, the plugin user can link in the plugin to build their app:
 gcc -o my_app [enclave.o | verifier.o] my_plugin.o ...
 ```
 
-Alternates
+Alternate Designs Considered
 ----------
 
 Another option is to transform the Open Enclave report from a platform-specific
