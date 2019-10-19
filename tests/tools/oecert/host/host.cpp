@@ -205,21 +205,23 @@ static oe_result_t _gen_report(
             printf("Generatting collateral file: %s\n", collateral_filename);
 
             result = oe_get_sgx_endorsements(
-                header->evidence,
-                header->evidence_size,
+                header->report,
+                header->report_size,
                 &collaterals,
                 &collaterals_size);
             if (result != OE_OK)
             {
-                FILE* col_fp = fopen(collateral_filename, "wb");
-                if (!col_fp)
-                {
-                    printf(
-                        "Failed to open collateral file %s\n",
-                        collateral_filename);
-                    result = OE_FAILURE;
-                    goto exit;
-                }
+                printf("Failed to create SGX endorsements.");
+                result = OE_FAILURE;
+                goto exit;
+            }
+            FILE* col_fp = fopen(collateral_filename, "wb");
+            if (!col_fp)
+            {
+                printf(
+                    "Failed to open collateral file %s\n", collateral_filename);
+                result = OE_FAILURE;
+                goto exit;
             }
             fwrite(collaterals, collaterals_size, 1, col_fp);
             fclose(col_fp);

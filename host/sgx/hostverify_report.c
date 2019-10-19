@@ -39,7 +39,11 @@ oe_result_t oe_verify_remote_report(
 
     // Quote attestation can be done entirely on the host side.
     OE_CHECK(oe_verify_sgx_quote(
-        header->evidence, header->evidence_size, NULL, 0, NULL));
+        header->evidence,
+        header->evidence_size,
+        endorsement,
+        endorsement_size,
+        NULL));
 
     // Optionally return parsed report.
     if (parsed_report != NULL)
